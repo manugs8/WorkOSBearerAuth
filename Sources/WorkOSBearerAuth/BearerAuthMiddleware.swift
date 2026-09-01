@@ -19,7 +19,7 @@ struct BearerAuthMiddleware: AsyncMiddleware {
     /// documentation, not data, and the discovery endpoint itself — an MCP client has to
     /// be able to fetch it *before* it has a token.
     static let exemptPaths: Set<String> = [
-        "/health", "/docs", "/openapi.yaml", "/.well-known/oauth-protected-resource",
+        "/health", "/docs", "/openapi.yaml"
     ]
 
     let jwksSource: any JWKSSource
@@ -27,7 +27,9 @@ struct BearerAuthMiddleware: AsyncMiddleware {
     let resourceMetadataURL: String
 
     func respond(to request: Request, chainingTo next: any AsyncResponder) async throws -> Response {
-        guard !Self.exemptPaths.contains(request.url.path) else {
+        let path = request.url.path
+        let isExempt = Self.exemptPaths.contains(path) || path.hasPrefix("/.well-known/oauth-protected-resource")
+        guard !isExempt else {
             return try await next.respond(to: request)
         }
 

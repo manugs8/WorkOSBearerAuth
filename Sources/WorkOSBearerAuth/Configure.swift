@@ -84,27 +84,28 @@ public func configureBearerAuth(_ app: Application, environment: BearerAuthEnvir
         throw ConfigurationError.invalidIssuer
     }
 
-    let resourceIndicators = Set(
-        resourceIndicatorsRaw.split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-    )
-    guard !resourceIndicators.isEmpty else {
+    let parsedIndicators = resourceIndicatorsRaw.split(separator: ",")
+        .map { $0.trimmingCharacters(in: .whitespaces) }
+        .filter { !$0.isEmpty }
+
+    guard !parsedIndicators.isEmpty else {
         throw ConfigurationError.emptyResourceIndicators
     }
     
-    for resourceIndicator in resourceIndicators {
+    for resourceIndicator in parsedIndicators {
         guard let url = URL(string: resourceIndicator), url.scheme == "https", url.host != nil else {
             throw ConfigurationError.invalidResourceIndicator
         }
     }
 
-    let primaryResourceIndicator = resourceIndicators.first!
+    // Preserve order to deterministically select the primary indicator
+    let primaryResourceIndicator = parsedIndicators.first!
+    let resourceIndicators = Set(parsedIndicators)
 
     let jwksURL = URI(string: issuer + "/oauth2/jwks")
     let remoteJWKS = RemoteJWKS(jwksURL: jwksURL, client: app.client)
     let verifier = makeProductionBearerTokenVerifier(issuer: issuer, audiences: resourceIndicators)
-    let resourceMetadataURL = publicBaseURL(of: primaryResourceIndicator) + "/.well-known/oauth-protected-resource"
+    let resourceMetadataURL = oauthProtectedResourceDiscoveryURL(for: primaryResourceIndicator)
 
     app.middleware.use(
         BearerAuthMiddleware(jwksSource: remoteJWKS, verifier: verifier, resourceMetadataURL: resourceMetadataURL)
@@ -115,7 +116,16 @@ public func configureBearerAuth(_ app: Application, environment: BearerAuthEnvir
         authorizationServers: [issuer],
         bearerMethodsSupported: ["header"]
     )
-    app.get(".well-known", "oauth-protected-resource") { _ in metadata }
+
+    // RFC 9728: The discovery endpoint incorporates the resource's path, if any.
+    var discoveryPathComponents: [PathComponent] = [".well-known", "oauth-protected-resource"]
+    if let url = URL(string: primaryResourceIndicator) {
+        let trimmedPath = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if !trimmedPath.isEmpty {
+            discoveryPathComponents.append(contentsOf: trimmedPath.split(separator: "/").map { PathComponent(stringLiteral: String($0)) })
+        }
+    }
+    app.get(discoveryPathComponents) { _ in metadata }
 
     app.logger.info("Bearer authentication enabled — issuer: \(issuer), resources: \(resourceIndicators)")
 }
@@ -150,14 +160,18 @@ struct OAuthProtectedResourceMetadata: Content {
 /// The scheme+host (no path) of a resource indicator URL, e.g.
 /// `https://api.example.com/mcp` → `https://api.example.com` — used to build the
 /// discovery endpoint's URL alongside the actual protected routes.
-private func publicBaseURL(of resourceIndicator: String) -> String {
+/// Builds the RFC 9728 discovery URL. If the resource indicator has a path, `.well-known`
+/// is inserted between the host and the path. e.g.
+/// `https://api.example.com/mcp` → `https://api.example.com/.well-known/oauth-protected-resource/mcp`
+private func oauthProtectedResourceDiscoveryURL(for resourceIndicator: String) -> String {
     guard let url = URL(string: resourceIndicator),
         let scheme = url.scheme, let host = url.host
     else {
         return resourceIndicator
     }
     let port = url.port.map { ":\($0)" } ?? ""
-    return "\(scheme)://\(host)\(port)"
+    let path = url.path.isEmpty ? "" : url.path
+    return "\(scheme)://\(host)\(port)/.well-known/oauth-protected-resource\(path)"
 }
 
 /// Errors that can occur while configuring bearer authentication. Not public: a consumer

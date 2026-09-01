@@ -207,4 +207,23 @@ struct ConfigureTests {
             }
         }
     }
+    // 13. Discovery endpoint with path works according to RFC 9728
+    @Test("Discovery endpoint inserts path per RFC 9728")
+    func discoveryEndpointWithPath() async throws {
+        try await Self.withApp(environment: .production) { app in
+            let env = BearerAuthEnvironmentConfig(
+                authDisabled: false,
+                workOSIssuer: "https://example.workos.com",
+                workOSResourceIndicatorsRaw: "https://api.example.com/mcp"
+            )
+            try configureBearerAuth(app, environment: env)
+
+            let route = try #require(app.routes.all.first { $0.path.map(\.description) == [".well-known", "oauth-protected-resource", "mcp"] })
+            #expect(route.path.count == 3)
+
+            try await app.testing().test(.GET, ".well-known/oauth-protected-resource/mcp") { res async throws in
+                #expect(res.status == .ok)
+            }
+        }
+    }
 }
