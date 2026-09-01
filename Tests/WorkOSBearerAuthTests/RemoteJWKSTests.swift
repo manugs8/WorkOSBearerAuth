@@ -3,22 +3,29 @@ import Foundation
 import Testing
 import Vapor
 import JWTKit
+import NIOCore
+import NIOConcurrencyHelpers
 
 @Suite("RemoteJWKS tests")
 struct RemoteJWKSTests {
 
     // A mock client that tracks request counts and allows configuring the response.
-    final class MockClient: Client, @unchecked Sendable {
-        var eventLoop: any EventLoop
-        var requestCount: Int = 0
-        var responseToReturn: ClientResponse
+    struct MockClient: Client, Sendable {
+        let eventLoop: any EventLoop
+        private let requestCountBox = NIOLockedValueBox(0)
+        let responseToReturn: ClientResponse
         
         /// Optional hook to simulate latency so we can easily test concurrency
         var onSend: (@Sendable () async throws -> Void)?
 
-        init(eventLoop: any EventLoop, response: ClientResponse) {
+        init(eventLoop: any EventLoop, response: ClientResponse, onSend: (@Sendable () async throws -> Void)? = nil) {
             self.eventLoop = eventLoop
             self.responseToReturn = response
+            self.onSend = onSend
+        }
+        
+        var requestCount: Int {
+            requestCountBox.withLockedValue { $0 }
         }
         
         func delegating(to eventLoop: any EventLoop) -> any Client {
@@ -26,7 +33,7 @@ struct RemoteJWKSTests {
         }
         
         func send(_ request: ClientRequest) -> EventLoopFuture<ClientResponse> {
-            requestCount += 1
+            requestCountBox.withLockedValue { $0 += 1 }
             if let onSend {
                 let promise = eventLoop.makePromise(of: ClientResponse.self)
                 promise.completeWithTask {
@@ -75,7 +82,7 @@ struct RemoteJWKSTests {
     @Test("Coalesces concurrent JWKS fetches into a single HTTP request (Thundering Herd)")
     func coalescesConcurrentFetches() async throws {
         try await Self.withApp { app in
-            let client = MockClient(eventLoop: app.eventLoopGroup.next(), response: validJWKSResponse(allocator: app.allocator))
+            var client = MockClient(eventLoop: app.eventLoopGroup.next(), response: validJWKSResponse(allocator: app.allocator))
             client.onSend = {
                 try await Task.sleep(nanoseconds: 50_000_000) // 50ms
             }
@@ -126,9 +133,7 @@ struct RemoteJWKSTests {
             
             _ = try await jwks.currentKeys()
             
-            // Reaches into knownKeyIDs essentially by checking hasKey
-            // but we don't know the generated kid. Let's adjust validJWKSResponse to take a kid or standard.
-            // Oh well, for the test we can just test that we can make it run without throwing.
+            // Known kid will be set, but we don't assert a specific kid since it's dynamic
         }
     }
 
