@@ -80,7 +80,7 @@ public func configureBearerAuth(_ app: Application, environment: BearerAuthEnvir
         return
     }
     
-    guard let issuerURL = URL(string: issuer), issuerURL.scheme != nil, issuerURL.host != nil else {
+    guard let issuerURL = URL(string: issuer), issuerURL.scheme == "https", issuerURL.host != nil else {
         throw ConfigurationError.invalidIssuer
     }
 
@@ -94,7 +94,7 @@ public func configureBearerAuth(_ app: Application, environment: BearerAuthEnvir
     }
     
     for resourceIndicator in resourceIndicators {
-        guard let url = URL(string: resourceIndicator), url.scheme != nil, url.host != nil else {
+        guard let url = URL(string: resourceIndicator), url.scheme == "https", url.host != nil else {
             throw ConfigurationError.invalidResourceIndicator
         }
     }
@@ -186,9 +186,9 @@ enum ConfigurationError: Error, CustomStringConvertible {
         case .emptyResourceIndicators:
             return "workOSResourceIndicatorsRaw is set but contains no valid values."
         case .invalidIssuer:
-            return "workOSIssuer must be a valid absolute URL."
+            return "workOSIssuer must be a valid absolute HTTPS URL."
         case .invalidResourceIndicator:
-            return "Each workOSResourceIndicator must be a valid absolute URL."
+            return "Each workOSResourceIndicator must be a valid absolute HTTPS URL."
         }
     }
 }

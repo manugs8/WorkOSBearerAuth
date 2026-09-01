@@ -48,7 +48,7 @@ struct RemoteJWKSTests {
     }
 
     /// Helper to create a valid JWKS JSON response
-    private func validJWKSResponse(allocator: ByteBufferAllocator) -> ClientResponse {
+    private func validJWKSResponse(allocator: ByteBufferAllocator, kid: String = "key-\(UUID().uuidString)") -> ClientResponse {
         let json = """
         {
           "keys": [
@@ -56,7 +56,7 @@ struct RemoteJWKSTests {
               "kty": "RSA",
               "alg": "RS256",
               "use": "sig",
-              "kid": "key-\(UUID().uuidString)",
+              "kid": "\(kid)",
               "n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw",
               "e": "AQAB"
             }
@@ -128,12 +128,17 @@ struct RemoteJWKSTests {
     @Test("Updates knownKeyIDs successfully")
     func updatesKnownKeyIDsSuccessfully() async throws {
         try await Self.withApp { app in
-            let client = MockClient(eventLoop: app.eventLoopGroup.next(), response: validJWKSResponse(allocator: app.allocator))
+            let kid = "known-kid-123"
+            let client = MockClient(eventLoop: app.eventLoopGroup.next(), response: validJWKSResponse(allocator: app.allocator, kid: kid))
             let jwks = RemoteJWKS(jwksURL: "https://example.com/oauth2/jwks", client: client)
             
             _ = try await jwks.currentKeys()
             
-            // Known kid will be set, but we don't assert a specific kid since it's dynamic
+            let knowsKey = await jwks.hasKey(kid: kid)
+            #expect(knowsKey == true)
+            
+            let doesNotKnowKey = await jwks.hasKey(kid: "unknown-kid")
+            #expect(doesNotKnowKey == false)
         }
     }
 

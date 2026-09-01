@@ -175,4 +175,36 @@ struct ConfigureTests {
             }
         }
     }
+
+    // 11. http issuer URL throws
+    @Test("HTTP issuer URL throws")
+    func httpIssuerThrows() async throws {
+        try await Self.withApp(environment: .production) { app in
+            let env = BearerAuthEnvironmentConfig(
+                authDisabled: false, 
+                workOSIssuer: "http://example.workos.com", 
+                workOSResourceIndicatorsRaw: "https://api.example.com"
+            )
+
+            #expect(throws: ConfigurationError.invalidIssuer) {
+                try configureBearerAuth(app, environment: env)
+            }
+        }
+    }
+
+    // 12. http resource indicator URL throws
+    @Test("HTTP resource indicator URL throws")
+    func httpResourceIndicatorThrows() async throws {
+        try await Self.withApp(environment: .production) { app in
+            let env = BearerAuthEnvironmentConfig(
+                authDisabled: false, 
+                workOSIssuer: "https://example.workos.com", 
+                workOSResourceIndicatorsRaw: "http://api.example.com"
+            )
+
+            #expect(throws: ConfigurationError.invalidResourceIndicator) {
+                try configureBearerAuth(app, environment: env)
+            }
+        }
+    }
 }
