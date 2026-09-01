@@ -46,7 +46,9 @@ actor RemoteJWKS: JWKSSource {
     /// doesn't, which would defeat the point of `hasKey(kid:)`.
     private var knownKeyIDs: Set<String> = []
     private var lastFetchedAt: Date?
+    private var lastAttemptedAt: Date?
     /// The in-flight refresh, if any — see `refreshOnce()`.
+
     private var refreshTask: Task<Void, any Error>?
 
     init(
@@ -65,12 +67,12 @@ actor RemoteJWKS: JWKSSource {
     /// `forceRefresh` is set.
     func currentKeys(forceRefresh: Bool = false) async throws -> JWTKeyCollection {
         let isStale = lastFetchedAt.map { Date().timeIntervalSince($0) > refreshInterval } ?? true
-        if isStale {
+        if isStale || forceRefresh {
             try await refreshOnce()
-        } else if forceRefresh {
-            if let lastFetch = lastFetchedAt, Date().timeIntervalSince(lastFetch) >= forcedRefreshCooldown {
-                try await refreshOnce()
-            }
+        }
+        
+        if lastFetchedAt == nil {
+            throw Abort(.serviceUnavailable, reason: "JWKS is unavailable and fetch is on cooldown.")
         }
         return keys
     }
@@ -93,7 +95,16 @@ actor RemoteJWKS: JWKSSource {
         if let refreshTask {
             return try await refreshTask.value
         }
-        let task = Task { try await self.refresh() }
+        
+        let isCoolingDown = lastAttemptedAt.map { Date().timeIntervalSince($0) < forcedRefreshCooldown } ?? false
+        if isCoolingDown {
+            return
+        }
+        
+        let task = Task { 
+            lastAttemptedAt = Date()
+            try await self.refresh() 
+        }
         refreshTask = task
         defer { refreshTask = nil }
         try await task.value

@@ -156,4 +156,27 @@ struct RemoteJWKSTests {
             #expect(client.requestCount == 1) // still 1
         }
     }
+
+    @Test("Successive failed refreshes are throttled by failure cooldown (Thundering Herd on failure)")
+    func throttlesSuccessiveFailedRefreshes() async throws {
+        try await Self.withApp { app in
+            let response = ClientResponse(status: .internalServerError, headers: [:], body: nil)
+            let client = MockClient(eventLoop: app.eventLoopGroup.next(), response: response)
+            let jwks = RemoteJWKS(jwksURL: "https://example.com/oauth2/jwks", client: client, forcedRefreshCooldown: 5)
+            
+            // First attempt should fail
+            do {
+                _ = try await jwks.currentKeys()
+                Issue.record("Expected error")
+            } catch {}
+            #expect(client.requestCount == 1)
+            
+            // Second attempt immediately after should be throttled
+            do {
+                _ = try await jwks.currentKeys()
+                Issue.record("Expected error")
+            } catch {}
+            #expect(client.requestCount == 1)
+        }
+    }
 }
