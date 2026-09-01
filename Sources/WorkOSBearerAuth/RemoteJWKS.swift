@@ -38,6 +38,7 @@ actor RemoteJWKS: JWKSSource {
     /// an unrecognized `kid`) waits on it — so it needs its own short, explicit bound
     /// rather than depending on whatever `client`'s own default (if any) happens to be.
     private let fetchTimeout: TimeAmount
+    private let forcedRefreshCooldown: TimeInterval
 
     private var keys = JWTKeyCollection()
     /// Tracked separately from `keys`: `JWTKeyCollection` has no public way to ask "do
@@ -50,20 +51,26 @@ actor RemoteJWKS: JWKSSource {
 
     init(
         jwksURL: URI, client: any Client, refreshInterval: TimeInterval = 3600,
-        fetchTimeout: TimeAmount = .seconds(5)
+        fetchTimeout: TimeAmount = .seconds(5),
+        forcedRefreshCooldown: TimeInterval = 30
     ) {
         self.jwksURL = jwksURL
         self.client = client
         self.refreshInterval = refreshInterval
         self.fetchTimeout = fetchTimeout
+        self.forcedRefreshCooldown = forcedRefreshCooldown
     }
 
     /// The current key collection, refreshing first if the cache is empty, stale, or
     /// `forceRefresh` is set.
     func currentKeys(forceRefresh: Bool = false) async throws -> JWTKeyCollection {
         let isStale = lastFetchedAt.map { Date().timeIntervalSince($0) > refreshInterval } ?? true
-        if forceRefresh || isStale {
+        if isStale {
             try await refreshOnce()
+        } else if forceRefresh {
+            if let lastFetch = lastFetchedAt, Date().timeIntervalSince(lastFetch) >= forcedRefreshCooldown {
+                try await refreshOnce()
+            }
         }
         return keys
     }

@@ -79,12 +79,27 @@ public func configureBearerAuth(_ app: Application, environment: BearerAuthEnvir
         )
         return
     }
+    
+    guard let issuerURL = URL(string: issuer), issuerURL.scheme != nil, issuerURL.host != nil else {
+        throw ConfigurationError.invalidIssuer
+    }
+
     let resourceIndicators = Set(
-        resourceIndicatorsRaw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        resourceIndicatorsRaw.split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
     )
-    guard let primaryResourceIndicator = resourceIndicators.first else {
+    guard !resourceIndicators.isEmpty else {
         throw ConfigurationError.emptyResourceIndicators
     }
+    
+    for resourceIndicator in resourceIndicators {
+        guard let url = URL(string: resourceIndicator), url.scheme != nil, url.host != nil else {
+            throw ConfigurationError.invalidResourceIndicator
+        }
+    }
+
+    let primaryResourceIndicator = resourceIndicators.first!
 
     let jwksURL = URI(string: issuer + "/oauth2/jwks")
     let remoteJWKS = RemoteJWKS(jwksURL: jwksURL, client: app.client)
@@ -156,6 +171,10 @@ enum ConfigurationError: Error, CustomStringConvertible {
     case missingWorkOSEnvironment
     /// `workOSResourceIndicatorsRaw` was set but empty after splitting on commas.
     case emptyResourceIndicators
+    /// The provided WorkOS issuer is not a valid absolute URL.
+    case invalidIssuer
+    /// One or more provided resource indicators are not valid absolute URLs.
+    case invalidResourceIndicator
 
     var description: String {
         switch self {
@@ -165,7 +184,11 @@ enum ConfigurationError: Error, CustomStringConvertible {
             return "Missing WorkOS configuration: set both the issuer and resource indicators, " +
                 "or disable auth explicitly outside production."
         case .emptyResourceIndicators:
-            return "workOSResourceIndicatorsRaw is set but contains no values."
+            return "workOSResourceIndicatorsRaw is set but contains no valid values."
+        case .invalidIssuer:
+            return "workOSIssuer must be a valid absolute URL."
+        case .invalidResourceIndicator:
+            return "Each workOSResourceIndicator must be a valid absolute URL."
         }
     }
 }

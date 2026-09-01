@@ -127,4 +127,52 @@ struct ConfigureTests {
             }
         }
     }
+
+    // 8. blank resource indicators throws
+    @Test("Blank resource indicators throws")
+    func blankResourceIndicatorsThrows() async throws {
+        try await Self.withApp(environment: .production) { app in
+            let env = BearerAuthEnvironmentConfig(
+                authDisabled: false, 
+                workOSIssuer: "https://example.workos.com", 
+                workOSResourceIndicatorsRaw: "   "
+            )
+
+            #expect(throws: ConfigurationError.emptyResourceIndicators) {
+                try configureBearerAuth(app, environment: env)
+            }
+        }
+    }
+
+    // 9. invalid issuer URL throws
+    @Test("Invalid issuer URL throws")
+    func invalidIssuerThrows() async throws {
+        try await Self.withApp(environment: .production) { app in
+            let env = BearerAuthEnvironmentConfig(
+                authDisabled: false, 
+                workOSIssuer: "not-a-valid-url", 
+                workOSResourceIndicatorsRaw: "https://api.example.com"
+            )
+
+            #expect(throws: ConfigurationError.invalidIssuer) {
+                try configureBearerAuth(app, environment: env)
+            }
+        }
+    }
+
+    // 10. invalid resource indicator URL throws
+    @Test("Invalid resource indicator URL throws")
+    func invalidResourceIndicatorThrows() async throws {
+        try await Self.withApp(environment: .production) { app in
+            let env = BearerAuthEnvironmentConfig(
+                authDisabled: false, 
+                workOSIssuer: "https://example.workos.com", 
+                workOSResourceIndicatorsRaw: "not-a-valid-url"
+            )
+
+            #expect(throws: ConfigurationError.invalidResourceIndicator) {
+                try configureBearerAuth(app, environment: env)
+            }
+        }
+    }
 }
