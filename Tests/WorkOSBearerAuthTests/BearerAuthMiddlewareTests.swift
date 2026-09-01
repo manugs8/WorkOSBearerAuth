@@ -325,4 +325,23 @@ struct BearerAuthMiddlewareTests {
             }
         }
     }
+
+    @Test("Discovery endpoint bypass is exact, not a prefix (regression)")
+    func discoveryEndpointBypassIsExact() async throws {
+        // Our resourceMetadataURL is "https://example.com/.well-known/oauth-protected-resource" in this suite
+        try await Self.withTestApp(keys: Self.makeKeys()) { app in
+            // Exact match bypasses middleware -> Vapor responds with 404 (because route is not defined in this suite)
+            try await app.testing().test(.GET, "/.well-known/oauth-protected-resource") { res async throws in
+                #expect(res.status == .notFound) // 404 means it reached the router
+            }
+
+            // Prefix match should NOT bypass middleware -> Middleware catches and responds with 401
+            try await app.testing().test(.GET, "/.well-known/oauth-protected-resource/mcp") { res async throws in
+                #expect(res.status == .unauthorized)
+            }
+            try await app.testing().test(.GET, "/.well-known/oauth-protected-resource-evil") { res async throws in
+                #expect(res.status == .unauthorized)
+            }
+        }
+    }
 }

@@ -16,8 +16,8 @@ import Vapor
 struct BearerAuthMiddleware: AsyncMiddleware {
     /// Paths that stay public: `/health` so a platform healthcheck (which can't
     /// authenticate) keeps working, `/docs`/`/openapi.yaml` because they're
-    /// documentation, not data, and the discovery endpoint itself — an MCP client has to
-    /// be able to fetch it *before* it has a token.
+    /// documentation, not data. The discovery endpoint is also exempt, but is matched
+    /// exactly via `exemptWellKnownPath`.
     static let exemptPaths: Set<String> = [
         "/health", "/docs", "/openapi.yaml"
     ]
@@ -25,10 +25,22 @@ struct BearerAuthMiddleware: AsyncMiddleware {
     let jwksSource: any JWKSSource
     let verifier: BearerTokenVerifier
     let resourceMetadataURL: String
+    private let exemptWellKnownPath: String
+
+    init(jwksSource: any JWKSSource, verifier: BearerTokenVerifier, resourceMetadataURL: String) {
+        self.jwksSource = jwksSource
+        self.verifier = verifier
+        self.resourceMetadataURL = resourceMetadataURL
+        if let url = URL(string: resourceMetadataURL) {
+            self.exemptWellKnownPath = url.path.isEmpty ? "" : url.path
+        } else {
+            self.exemptWellKnownPath = "/.well-known/oauth-protected-resource"
+        }
+    }
 
     func respond(to request: Request, chainingTo next: any AsyncResponder) async throws -> Response {
         let path = request.url.path
-        let isExempt = Self.exemptPaths.contains(path) || path.hasPrefix("/.well-known/oauth-protected-resource")
+        let isExempt = Self.exemptPaths.contains(path) || path == exemptWellKnownPath
         guard !isExempt else {
             return try await next.respond(to: request)
         }
