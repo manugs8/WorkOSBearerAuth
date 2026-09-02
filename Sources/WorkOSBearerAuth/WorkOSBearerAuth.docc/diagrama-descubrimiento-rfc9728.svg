@@ -1,0 +1,88 @@
+<svg viewBox="0 0 940 700" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Descubrimiento automático del servidor de autorización mediante RFC 9728">
+  <defs>
+    <marker id="arrowD" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#24292f"/>
+    </marker>
+  </defs>
+  <style>
+    .bg { fill: #f8f9fb; }
+    .title { font: 600 20px -apple-system, Helvetica, Arial, sans-serif; fill: #1a202c; }
+    .subtitle { font: 400 13.5px -apple-system, Helvetica, Arial, sans-serif; fill: #57606a; }
+    .actor { fill: #eef2ff; stroke: #4338ca; stroke-width: 1.5; }
+    .actorText { font: 700 14px -apple-system, Helvetica, Arial, sans-serif; fill: #312e81; }
+    .life { stroke: #c7cad1; stroke-width: 1.5; stroke-dasharray: 4 4; }
+    .req { stroke: #24292f; stroke-width: 1.6; fill: none; marker-end: url(#arrowD); }
+    .res { stroke: #57606a; stroke-width: 1.6; fill: none; stroke-dasharray: 6 4; marker-end: url(#arrowD); }
+    .lbl { font: 600 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #1a202c; }
+    .lbl2 { font: 400 12px -apple-system, Helvetica, Arial, sans-serif; fill: #57606a; font-style: italic; }
+    .step { font: 700 12px -apple-system, Helvetica, Arial, sans-serif; fill: #ffffff; }
+    .stepBg { fill: #4338ca; }
+    .err { fill: #b45309; }
+    .ok { fill: #1e7e34; }
+  </style>
+  <rect class="bg" x="0" y="0" width="940" height="700" rx="12"/>
+  <text x="30" y="34" class="title">Descubrimiento automático del servidor de autorización (RFC 9728)</text>
+  <text x="30" y="54" class="subtitle">Así sabe un cliente (p. ej. un agente MCP) a dónde ir a por un token, sin que un humano lo configure a mano</text>
+
+  <!-- Actors -->
+  <rect class="actor" x="60" y="72" width="180" height="42" rx="8"/>
+  <text x="150" y="98" text-anchor="middle" class="actorText">Cliente (app / agente)</text>
+  <rect class="actor" x="390" y="72" width="200" height="42" rx="8"/>
+  <text x="490" y="98" text-anchor="middle" class="actorText">API protegida (esta librería)</text>
+  <rect class="actor" x="720" y="72" width="180" height="42" rx="8"/>
+  <text x="810" y="98" text-anchor="middle" class="actorText">WorkOS AuthKit</text>
+
+  <line x1="150" y1="114" x2="150" y2="660" class="life"/>
+  <line x1="490" y1="114" x2="490" y2="660" class="life"/>
+  <line x1="810" y1="114" x2="810" y2="660" class="life"/>
+
+  <!-- 1 -->
+  <circle class="stepBg" cx="150" cy="140" r="11"/><text x="150" y="144" text-anchor="middle" class="step">1</text>
+  <path d="M150,150 H490" class="req"/>
+  <text x="170" y="146" class="lbl">GET /mcp   (sin token)</text>
+
+  <!-- 2 -->
+  <circle class="err" cx="490" cy="185" r="11"/><text x="490" y="189" text-anchor="middle" class="step">2</text>
+  <path d="M490,195 H150" class="res"/>
+  <text x="170" y="181" class="lbl">401 Unauthorized</text>
+  <text x="170" y="212" class="lbl2">WWW-Authenticate: Bearer resource_metadata="…/.well-known/oauth-protected-resource"</text>
+
+  <!-- 3 -->
+  <circle class="stepBg" cx="150" cy="248" r="11"/><text x="150" y="252" text-anchor="middle" class="step">3</text>
+  <path d="M150,258 H490" class="req"/>
+  <text x="170" y="254" class="lbl">GET /.well-known/oauth-protected-resource</text>
+
+  <!-- 4 -->
+  <circle class="ok" cx="490" cy="293" r="11"/><text x="490" y="297" text-anchor="middle" class="step">4</text>
+  <path d="M490,303 H150" class="res"/>
+  <text x="170" y="289" class="lbl">200 OK</text>
+  <text x="170" y="320" class="lbl2">{ resource, authorization_servers: ["https://…workos…"], bearer_methods_supported: ["header"] }</text>
+
+  <!-- 5 -->
+  <circle class="stepBg" cx="150" cy="365" r="11"/><text x="150" y="369" text-anchor="middle" class="step">5</text>
+  <path d="M150,375 H810" class="req"/>
+  <text x="170" y="371" class="lbl" font-family="-apple-system, Helvetica, Arial, sans-serif" font-weight="600">Login / consentimiento OAuth (fuera de esta librería)</text>
+
+  <!-- 6 -->
+  <circle class="ok" cx="810" cy="410" r="11"/><text x="810" y="414" text-anchor="middle" class="step">6</text>
+  <path d="M810,420 H150" class="res"/>
+  <text x="170" y="406" class="lbl" font-family="-apple-system, Helvetica, Arial, sans-serif" font-weight="600">Token de acceso (JWT) emitido por WorkOS</text>
+
+  <!-- 7 -->
+  <circle class="stepBg" cx="150" cy="473" r="11"/><text x="150" y="477" text-anchor="middle" class="step">7</text>
+  <path d="M150,483 H490" class="req"/>
+  <text x="170" y="479" class="lbl">GET /mcp</text>
+  <text x="170" y="500" class="lbl2">Authorization: Bearer &lt;token&gt;</text>
+
+  <!-- 8 -->
+  <circle class="ok" cx="490" cy="533" r="11"/><text x="490" y="537" text-anchor="middle" class="step">8</text>
+  <path d="M490,543 H150" class="res"/>
+  <text x="170" y="529" class="lbl">200 OK</text>
+
+  <!-- Footnote -->
+  <rect x="60" y="580" width="840" height="90" rx="10" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="76" y="602" font-weight="700" font-size="13" font-family="-apple-system, Helvetica, Arial, sans-serif" fill="#1a202c">¿Qué resuelve exactamente este vaivén?</text>
+  <text x="76" y="622" font-size="12.5" font-family="-apple-system, Helvetica, Arial, sans-serif" fill="#1a202c">Sin los pasos 2–4, un cliente que recibe un 401 no tiene forma programática de saber a qué Authorization Server</text>
+  <text x="76" y="640" font-size="12.5" font-family="-apple-system, Helvetica, Arial, sans-serif" fill="#1a202c">dirigirse — alguien tendría que configurarlo a mano. `configureBearerAuth` registra el paso 3/4 y la cabecera del</text>
+  <text x="76" y="658" font-size="12.5" font-family="-apple-system, Helvetica, Arial, sans-serif" fill="#1a202c">paso 2; los pasos 1, 5, 6, 7 y 8 son responsabilidad del cliente y de WorkOS, no de esta librería.</text>
+</svg>

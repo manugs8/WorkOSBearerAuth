@@ -2,52 +2,55 @@ import JWTKit
 import NIOCore
 import Vapor
 
-/// Where ``BearerAuthMiddleware`` gets the ``JWTKeyCollection`` it verifies tokens against.
-/// Extracted so tests can hand the middleware a local, already-built key collection (no
-/// network, no real WorkOS credentials) instead of the real ``RemoteJWKS`` — see
-/// `BearerAuthMiddlewareTests`.
+/// De dónde obtiene ``BearerAuthMiddleware`` la `JWTKeyCollection` contra la que verifica
+/// los tokens. Está extraído para que los tests puedan darle al middleware una colección
+/// de claves local, ya construida (sin red, sin credenciales reales de WorkOS) en vez del
+/// ``RemoteJWKS`` real — ver `BearerAuthMiddlewareTests`.
 protocol JWKSSource: Sendable {
     func currentKeys(forceRefresh: Bool) async throws -> JWTKeyCollection
 
-    /// Whether the currently cached key set recognizes this `kid`. Lets
-    /// ``BearerAuthMiddleware`` decide that a forced refresh is warranted only for a
-    /// `kid` it doesn't know about yet (a plausible key rotation) — not for every
-    /// verification failure, which would let an attacker force wasted JWKS fetches
-    /// just by sending garbage tokens.
+    /// Si el conjunto de claves actualmente en caché reconoce este `kid`. Permite que
+    /// ``BearerAuthMiddleware`` decida forzar un refresco solo cuando aparece un `kid`
+    /// que todavía no conoce (una plausible rotación de clave) — no ante cualquier fallo
+    /// de verificación, lo que permitiría a un atacante forzar consultas JWKS
+    /// innecesarias sin más que enviar tokens basura.
     func hasKey(kid: String) async -> Bool
 }
 
-/// Fetches and caches the JSON Web Key Set published at a remote URL (WorkOS AuthKit's
-/// `<issuer>/oauth2/jwks`), refreshing it periodically and on demand.
+/// Obtiene y cachea el JSON Web Key Set publicado en una URL remota (el
+/// `<issuer>/oauth2/jwks` de WorkOS AuthKit), refrescándolo de forma periódica y bajo
+/// demanda.
 ///
-/// An actor because the cached ``JWTKeyCollection`` is mutated by concurrent requests —
-/// every request hitting a protected route calls into this to get the current keys.
+/// Es un actor porque la ``JWTKeyCollection`` cacheada la mutan peticiones concurrentes —
+/// cada petición que llega a una ruta protegida llama aquí para obtener las claves
+/// actuales.
 actor RemoteJWKS: JWKSSource {
-    /// Defensive cap on the JWKS response body. WorkOS's JWKS is tiny in practice (a
-    /// handful of keys, a few KB at most) — anything anywhere near this size means
-    /// something's wrong (a misdirected URL, an error page instead of JSON, WorkOS
-    /// serving something unexpected), so it's rejected outright rather than buffered
-    /// into a `String` and handed to the JSON decoder.
+    /// Límite defensivo sobre el cuerpo de la respuesta del JWKS. El JWKS de WorkOS es
+    /// diminuto en la práctica (un puñado de claves, como mucho unos pocos KB) — cualquier
+    /// cosa que se acerque a este tamaño significa que algo va mal (una URL mal dirigida,
+    /// una página de error en vez de JSON, WorkOS sirviendo algo inesperado), así que se
+    /// rechaza sin más en vez de volcarlo en un `String` y pasárselo al decodificador JSON.
     private static let maxResponseBytes = 1_048_576  // 1 MiB
 
     private let jwksURL: URI
     private let client: any Client
     private let refreshInterval: TimeInterval
-    /// How long a single JWKS fetch is allowed to take before failing. This sits on the
-    /// authentication path — every request needing a refresh (an empty/stale cache, or
-    /// an unrecognized `kid`) waits on it — so it needs its own short, explicit bound
-    /// rather than depending on whatever `client`'s own default (if any) happens to be.
+    /// Cuánto tiempo puede tardar como máximo una única consulta al JWKS antes de darse
+    /// por fallida. Esto está en pleno camino de autenticación — cualquier petición que
+    /// necesite un refresco (una caché vacía/caducada, o un `kid` no reconocido) espera a
+    /// que termine — así que necesita su propio límite corto y explícito, en vez de
+    /// depender de cuál sea el valor por defecto (si tiene alguno) del propio `client`.
     private let fetchTimeout: TimeAmount
     private let forcedRefreshCooldown: TimeInterval
 
     private var keys = JWTKeyCollection()
-    /// Tracked separately from `keys`: `JWTKeyCollection` has no public way to ask "do
-    /// you recognize this `kid`" without also falling back to a default signer when it
-    /// doesn't, which would defeat the point of `hasKey(kid:)`.
+    /// Se lleva por separado de `keys`: `JWTKeyCollection` no tiene ninguna forma pública
+    /// de preguntar "¿reconoces este `kid`?" sin recurrir también a un firmante por
+    /// defecto cuando no lo reconoce, lo que anularía el propósito de `hasKey(kid:)`.
     private var knownKeyIDs: Set<String> = []
     private var lastFetchedAt: Date?
     private var lastAttemptedAt: Date?
-    /// The in-flight refresh, if any — see `refreshOnce()`.
+    /// El refresco en curso, si lo hay — ver `refreshOnce()`.
 
     private var refreshTask: Task<Void, any Error>?
 
@@ -63,8 +66,8 @@ actor RemoteJWKS: JWKSSource {
         self.forcedRefreshCooldown = forcedRefreshCooldown
     }
 
-    /// The current key collection, refreshing first if the cache is empty, stale, or
-    /// `forceRefresh` is set.
+    /// La colección de claves actual, refrescándola primero si la caché está vacía,
+    /// caducada, o si se indica `forceRefresh`.
     func currentKeys(forceRefresh: Bool = false) async throws -> JWTKeyCollection {
         let isStale = lastFetchedAt.map { Date().timeIntervalSince($0) > refreshInterval } ?? true
         if isStale || forceRefresh {
@@ -81,16 +84,17 @@ actor RemoteJWKS: JWKSSource {
         knownKeyIDs.contains(kid)
     }
 
-    /// Coalesces concurrent refresh requests into a single in-flight fetch. Actor
-    /// isolation on its own doesn't prevent duplicate fetches here: `refresh()` awaits an
-    /// HTTP response, and while it's suspended another call can re-enter this actor, see
-    /// `lastFetchedAt` still stale (the first fetch hasn't completed yet), and kick off a
-    /// second, redundant request to WorkOS — a thundering herd the moment the cache
-    /// expires under real traffic. Joining the same `Task` instead of racing separate
-    /// ones avoids that. `refreshTask` is cleared by whichever invocation's own `defer`
-    /// fires — only the branch below that actually creates the task ever reaches that
-    /// `defer` at all; every other concurrent call returns earlier, from the `if let`
-    /// above, without registering one.
+    /// Fusiona las peticiones de refresco concurrentes en una única consulta en curso. El
+    /// aislamiento del actor, por sí solo, no evita aquí duplicar consultas: `refresh()`
+    /// espera una respuesta HTTP, y mientras está suspendida otra llamada puede volver a
+    /// entrar en este actor, ver que `lastFetchedAt` sigue caducado (la primera consulta
+    /// no ha terminado todavía), y lanzar una segunda petición redundante a WorkOS — una
+    /// estampida (thundering herd) justo en el momento en que la caché expira bajo
+    /// tráfico real. Unirse al mismo `Task` en vez de lanzar otros en paralelo evita esto.
+    /// `refreshTask` lo limpia el `defer` de la invocación que lo haya creado — solo la
+    /// rama de más abajo que de verdad crea la tarea llega a ejecutar ese `defer`;
+    /// cualquier otra llamada concurrente devuelve el control antes, desde el `if let` de
+    /// arriba, sin llegar a registrar ninguno.
     private func refreshOnce() async throws {
         if let refreshTask {
             return try await refreshTask.value
@@ -111,8 +115,9 @@ actor RemoteJWKS: JWKSSource {
     }
 
     private func refresh() async throws {
-        // Captured into a local first: the `beforeSend` closure below runs outside this
-        // actor's isolation, so it can't safely read `self.fetchTimeout` directly.
+        // Se captura primero en una variable local: el closure `beforeSend` de más abajo
+        // se ejecuta fuera del aislamiento de este actor, así que no puede leer
+        // `self.fetchTimeout` directamente de forma segura.
         let timeout = fetchTimeout
         let response = try await client.get(jwksURL) { $0.timeout = timeout }
         guard response.status == .ok, var body = response.body else {

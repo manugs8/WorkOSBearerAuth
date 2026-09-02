@@ -1,25 +1,38 @@
 import Vapor
 
-/// The environment-derived inputs `configureBearerAuth` needs. Reading the actual
-/// `Environment.get(...)` calls is left to the consuming application's own
-/// `configure.swift` — this type only carries the raw values — so that:
+/// Los valores derivados del entorno que necesita `configureBearerAuth`. Leer las
+/// llamadas reales a `Environment.get(...)` se deja al propio `configure.swift` de la
+/// aplicación consumidora — este tipo solo transporta los valores en crudo — para que:
 ///
-/// 1. This library never hardcodes a specific set of environment variable *names*; a
-///    consumer is free to source these values however it wants (env vars under any
-///    name, a secrets manager, etc.).
-/// 2. `configureBearerAuth`'s own branching logic (below) can be exercised in tests by
-///    constructing different `BearerAuthEnvironmentConfig` values directly, instead of
-///    mutating real process environment variables per test case.
+/// 1. Esta librería nunca fije de forma rígida un conjunto concreto de *nombres* de
+///    variables de entorno; quien la consume es libre de obtener estos valores como
+///    quiera (variables de entorno con cualquier nombre, un gestor de secretos, etc.).
+/// 2. La propia lógica de bifurcación de `configureBearerAuth` (más abajo) se pueda
+///    ejercitar en tests construyendo directamente distintos valores de
+///    `BearerAuthEnvironmentConfig`, en vez de mutar variables de entorno reales del
+///    proceso en cada caso de test.
 ///
-/// `workOSResourceIndicatorsRaw` stays a single comma-separated string (WorkOS's own
-/// format for `WORKOS_RESOURCE_INDICATORS`) rather than already being split into a
-/// `Set<String>` — the splitting/trimming/empty-check is WorkOS-format parsing, not
-/// project-specific, so it stays this library's job, not the consumer's.
+/// `workOSResourceIndicatorsRaw` se mantiene como una única cadena separada por comas
+/// (el formato propio de WorkOS para `WORKOS_RESOURCE_INDICATORS`) en vez de venir ya
+/// dividida en un `Set<String>` — el trabajo de dividir/recortar/comprobar que no esté
+/// vacío es analizar el formato de WorkOS, no algo específico del proyecto, así que sigue
+/// siendo responsabilidad de esta librería, no de quien la consume.
 public struct BearerAuthEnvironmentConfig: Sendable {
+    /// Vía de escape para desactivar la autenticación fuera de producción (tests locales,
+    /// entornos de desarrollo sin WorkOS a mano). `configureBearerAuth` la rechaza en
+    /// `.production`.
     public let authDisabled: Bool
+    /// La URL del issuer de WorkOS AuthKit (p. ej. `https://tu-proyecto.authkit.app`).
+    /// Debe ser una URL absoluta `https://` con host — `configureBearerAuth` la valida
+    /// antes de usarla.
     public let workOSIssuer: String?
+    /// El valor en crudo, tal cual, de `WORKOS_RESOURCE_INDICATORS`: uno o varios
+    /// indicadores de recurso separados por comas (p. ej.
+    /// `"https://api.example.com/mcp,http://localhost:8080/mcp"`). `configureBearerAuth`
+    /// se encarga de dividirlo, recortar espacios y validar cada valor.
     public let workOSResourceIndicatorsRaw: String?
 
+    /// Crea la configuración de entrada para ``configureBearerAuth(_:environment:)``.
     public init(authDisabled: Bool, workOSIssuer: String?, workOSResourceIndicatorsRaw: String?) {
         self.authDisabled = authDisabled
         self.workOSIssuer = workOSIssuer
@@ -27,28 +40,33 @@ public struct BearerAuthEnvironmentConfig: Sendable {
     }
 }
 
-/// Registers `BearerAuthMiddleware` globally (so REST and `/mcp` share one authentication
-/// path) and the RFC 9728 OAuth Protected Resource Metadata discovery route it needs.
+/// Registra `BearerAuthMiddleware` de forma global (para que REST y `/mcp` compartan un
+/// único camino de autenticación) y la ruta de descubrimiento RFC 9728 (OAuth Protected
+/// Resource Metadata) que necesita.
 ///
-/// Four cases, driven by `environment`:
-/// 1. `.testing` — unconditionally skipped regardless of what `environment` carries. A
-///    consumer's own `.env.local` may carry real WorkOS staging credentials for `swift
-///    run`, so an env-var check alone isn't enough to keep `swift test` free of a live
-///    network dependency on WorkOS's JWKS endpoint. `BearerAuthMiddleware` itself is
-///    still exercised end-to-end in this library's own tests — see
-///    `BearerAuthMiddlewareTests`, which wires it up with a local, non-network
-///    `JWKSSource` instead of the real `RemoteJWKS`.
-/// 2. `environment.authDisabled` in production — refuses to boot. A test-only escape
-///    hatch must never silently reach a real deployment.
-/// 3. `environment.authDisabled` outside production, or neither `authDisabled` nor
-///    `workOSIssuer`/`workOSResourceIndicatorsRaw` set — authentication is disabled with
-///    a loud warning instead of every route silently being reachable with no signal.
-/// 4. `workOSIssuer`/`workOSResourceIndicatorsRaw` set — real JWT/JWKS validation is
-///    enforced, including in production, where it's required (missing config throws).
+/// Cuatro casos, según `environment`:
+/// 1. `.testing` — se salta incondicionalmente, sin importar lo que lleve `environment`.
+///    El propio `.env.local` de una app consumidora puede llevar credenciales reales de
+///    staging de WorkOS para `swift run`, así que una comprobación de variables de
+///    entorno por sí sola no basta para mantener `swift test` libre de una dependencia de
+///    red real contra el endpoint JWKS de WorkOS. `BearerAuthMiddleware` en sí se sigue
+///    ejercitando de extremo a extremo en los propios tests de esta librería — ver
+///    `BearerAuthMiddlewareTests`, que lo monta con un `JWKSSource` local sin red en vez
+///    del `RemoteJWKS` real.
+/// 2. `environment.authDisabled` en producción — se niega a arrancar. Una vía de escape
+///    pensada solo para tests nunca debe llegar en silencio a un despliegue real.
+/// 3. `environment.authDisabled` fuera de producción, o ni `authDisabled` ni
+///    `workOSIssuer`/`workOSResourceIndicatorsRaw` están fijados — la autenticación se
+///    desactiva con un aviso bien visible, en vez de que todas las rutas queden
+///    silenciosamente accesibles sin ninguna señal.
+/// 4. `workOSIssuer`/`workOSResourceIndicatorsRaw` fijados — se exige una validación real
+///    de JWT/JWKS, también en producción, donde es obligatoria (si falta la
+///    configuración, lanza un error).
 ///
-/// - Throws: `authDisabledInProduction`, `missingWorkOSEnvironment`, or
-///   `emptyResourceIndicators` (all private to this module — a consumer that wants to
-///   log or propagate the failure doesn't need to pattern-match the specific case).
+/// - Throws: `authDisabledInProduction`, `missingWorkOSEnvironment`, o
+///   `emptyResourceIndicators` (los tres son privados a este módulo — quien consuma la
+///   librería y quiera registrar o propagar el fallo no necesita distinguir el caso
+///   concreto).
 public func configureBearerAuth(_ app: Application, environment: BearerAuthEnvironmentConfig) throws {
     guard app.environment != .testing else {
         app.logger.warning("Running in .testing — skipping bearer auth regardless of WorkOS environment.")
@@ -98,7 +116,7 @@ public func configureBearerAuth(_ app: Application, environment: BearerAuthEnvir
         }
     }
 
-    // Preserve order to deterministically select the primary indicator
+    // Se conserva el orden para elegir el indicador primario de forma determinista
     let primaryResourceIndicator = parsedIndicators.first!
     let resourceIndicators = Set(parsedIndicators)
 
@@ -117,7 +135,7 @@ public func configureBearerAuth(_ app: Application, environment: BearerAuthEnvir
         bearerMethodsSupported: ["header"]
     )
 
-    // RFC 9728: The discovery endpoint incorporates the resource's path, if any.
+    // RFC 9728: el endpoint de descubrimiento incorpora el path del recurso, si tiene uno.
     var discoveryPathComponents: [PathComponent] = [".well-known", "oauth-protected-resource"]
     if let url = URL(string: primaryResourceIndicator) {
         let trimmedPath = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -130,21 +148,22 @@ public func configureBearerAuth(_ app: Application, environment: BearerAuthEnvir
     app.logger.info("Bearer authentication enabled — issuer: \(issuer), resources: \(resourceIndicators)")
 }
 
-/// Builds the production `BearerTokenVerifier` — pulled out of `configureBearerAuth` so a
-/// test can assert its policy (algorithm, `kid` requirement) directly, without needing to
-/// fight `configureBearerAuth`'s own `.testing` short-circuit. Passes neither
-/// `allowedAlgorithms` nor `requiresKeyID` on purpose — production always gets
-/// `BearerTokenVerifier`'s own defaults (RS256-only, `kid` required). If this function
-/// ever grows those parameters, `productionVerifierUsesDefaultPolicy` in
-/// `BearerTokenVerifierTests` should fail loudly rather than silently loosen the policy.
+/// Construye el `BearerTokenVerifier` de producción — extraído de `configureBearerAuth`
+/// para que un test pueda comprobar su política (algoritmo, exigencia de `kid`)
+/// directamente, sin tener que lidiar con el cortocircuito de `.testing` de la propia
+/// `configureBearerAuth`. No pasa ni `allowedAlgorithms` ni `requiresKeyID` a propósito —
+/// producción recibe siempre los valores por defecto del propio `BearerTokenVerifier`
+/// (solo RS256, `kid` obligatorio). Si esta función alguna vez incorpora esos parámetros,
+/// `productionVerifierUsesDefaultPolicy` en `BearerTokenVerifierTests` debería fallar de
+/// forma ruidosa en vez de relajar la política en silencio.
 func makeProductionBearerTokenVerifier(issuer: String, audiences: Set<String>) -> BearerTokenVerifier {
     BearerTokenVerifier(issuer: issuer, audiences: audiences)
 }
 
 /// `GET /.well-known/oauth-protected-resource` — OAuth 2.0 Protected Resource Metadata
-/// (RFC 9728), so an MCP client that gets a 401 from `/mcp` can discover which
-/// Authorization Server (WorkOS) to redirect the user to, without a human having to paste
-/// in a token by hand.
+/// (RFC 9728), para que un cliente MCP que reciba un 401 de `/mcp` pueda descubrir a qué
+/// Authorization Server (WorkOS) redirigir al usuario, sin que un humano tenga que pegar
+/// un token a mano.
 struct OAuthProtectedResourceMetadata: Content {
     let resource: String
     let authorizationServers: [String]
@@ -157,12 +176,10 @@ struct OAuthProtectedResourceMetadata: Content {
     }
 }
 
-/// The scheme+host (no path) of a resource indicator URL, e.g.
-/// `https://api.example.com/mcp` → `https://api.example.com` — used to build the
-/// discovery endpoint's URL alongside the actual protected routes.
-/// Builds the RFC 9728 discovery URL. If the resource indicator has a path, `.well-known`
-/// is inserted between the host and the path. e.g.
-/// `https://api.example.com/mcp` → `https://api.example.com/.well-known/oauth-protected-resource/mcp`
+/// Construye la URL de descubrimiento RFC 9728 a partir de un resource indicator, p. ej.
+/// `https://api.example.com/mcp` → `https://api.example.com/.well-known/oauth-protected-resource/mcp`.
+/// Toma el scheme+host (sin el path) del resource indicator y, si este tenía un path,
+/// inserta `.well-known/oauth-protected-resource` entre el host y ese path.
 private func oauthProtectedResourceDiscoveryURL(for resourceIndicator: String) -> String {
     guard let url = URL(string: resourceIndicator),
         let scheme = url.scheme, let host = url.host
@@ -174,20 +191,20 @@ private func oauthProtectedResourceDiscoveryURL(for resourceIndicator: String) -
     return "\(scheme)://\(host)\(port)/.well-known/oauth-protected-resource\(path)"
 }
 
-/// Errors that can occur while configuring bearer authentication. Not public: a consumer
-/// that wants to log or propagate the failure works with `any Error`, and doesn't need to
-/// pattern-match the specific case.
+/// Errores que pueden ocurrir al configurar la autenticación Bearer. No es public: quien
+/// consuma la librería y quiera registrar o propagar el fallo trabaja con `any Error`, y
+/// no necesita distinguir el caso concreto.
 enum ConfigurationError: Error, CustomStringConvertible {
-    /// Auth was disabled while running in the `.production` environment.
+    /// La autenticación estaba desactivada mientras se ejecutaba en el entorno `.production`.
     case authDisabledInProduction
-    /// Running in `.production` without a WorkOS issuer/resource indicators and without
-    /// auth explicitly disabled.
+    /// Se ejecuta en `.production` sin issuer/resource indicators de WorkOS y sin haber
+    /// desactivado la autenticación explícitamente.
     case missingWorkOSEnvironment
-    /// `workOSResourceIndicatorsRaw` was set but empty after splitting on commas.
+    /// `workOSResourceIndicatorsRaw` estaba fijado pero ha quedado vacío tras dividirlo por comas.
     case emptyResourceIndicators
-    /// The provided WorkOS issuer is not a valid absolute URL.
+    /// El issuer de WorkOS proporcionado no es una URL absoluta válida.
     case invalidIssuer
-    /// One or more provided resource indicators are not valid absolute URLs.
+    /// Uno o más de los resource indicators proporcionados no son URLs absolutas válidas.
     case invalidResourceIndicator
 
     var description: String {

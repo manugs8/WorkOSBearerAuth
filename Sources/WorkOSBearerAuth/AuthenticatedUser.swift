@@ -5,27 +5,28 @@ extension Request {
         typealias Value = WorkOSClaims
     }
 
-    /// The validated claims of the bearer token that authenticated this request — set by
-    /// `BearerAuthMiddleware` right after a successful `BearerTokenVerifier.verify(_:using:)`.
-    /// `nil` when authentication is disabled (`AUTH_DISABLED=true`) or the request hit an
-    /// exempt path.
+    /// Las claims validadas del token Bearer que autenticó esta petición — las fija
+    /// `BearerAuthMiddleware` justo después de un `BearerTokenVerifier.verify(_:using:)`
+    /// correcto. Es `nil` cuando la autenticación está desactivada (`AUTH_DISABLED=true`)
+    /// o la petición ha llegado por una ruta exenta.
     ///
-    /// `Request.storage`, not a task-local: a task-local set in the middleware does not
-    /// reliably reach code invoked further down the chain in a Vapor app. Vapor's
-    /// `AsyncMiddleware` and its router both bridge from async back to `EventLoopFuture`
-    /// via `completeWithTask` (`Task { ... }`) at more than one point between a middleware
-    /// and the route it dispatches to, and that bridging does not preserve task-local
-    /// values here — verified empirically: a task-local set by the middleware was not
-    /// visible from a plain route closure reached via `next.respond`, with or without
-    /// `.grouped()`. `Request` is a reference type threaded through that whole chain
-    /// regardless of which `Task` ends up running which part of it, so reading/writing its
-    /// `storage` isn't affected by that problem.
+    /// `Request.storage`, no un task-local: un task-local fijado en el middleware no llega
+    /// de forma fiable al código que se invoca más adelante en la cadena de una app Vapor.
+    /// Tanto `AsyncMiddleware` como el router de Vapor puentean de async de vuelta a
+    /// `EventLoopFuture` mediante `completeWithTask` (`Task { ... }`) en más de un punto
+    /// entre un middleware y la ruta a la que despacha, y ese puente no conserva aquí los
+    /// valores task-local — comprobado empíricamente: un task-local fijado por el
+    /// middleware no era visible desde un closure de ruta normal alcanzado vía
+    /// `next.respond`, con o sin `.grouped()`. `Request` es un tipo por referencia que
+    /// atraviesa toda esa cadena sin importar qué `Task` acabe ejecutando cada tramo, así
+    /// que leer/escribir su `storage` no se ve afectado por ese problema.
     ///
-    /// A consuming app's own REST handlers may not be scoped to a `Vapor.Request` at all
-    /// — some OpenAPI-generator-driven setups deliberately keep the generated protocol
-    /// conformance decoupled from `Request` (e.g. to use `app.db` instead of `req.db`).
-    /// Giving REST access to the authenticated identity in that case needs that decision
-    /// revisited on the consumer's side, not just a different propagation mechanism.
+    /// Los propios handlers REST de una app consumidora pueden no estar ligados en
+    /// absoluto a un `Vapor.Request` — algunos montajes generados a partir de OpenAPI
+    /// mantienen deliberadamente la conformidad de protocolo generada desacoplada de
+    /// `Request` (p. ej. para usar `app.db` en vez de `req.db`). Dar acceso REST a la
+    /// identidad autenticada en ese caso exige revisar esa decisión en el lado del
+    /// consumidor, no solo cambiar el mecanismo de propagación.
     public var authenticatedClaims: WorkOSClaims? {
         get { self.storage[AuthenticatedClaimsKey.self] }
         set { self.storage[AuthenticatedClaimsKey.self] = newValue }

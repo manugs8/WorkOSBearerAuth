@@ -1,23 +1,25 @@
 import JWTKit
 import Vapor
 
-/// Requires a valid bearer token on every route except the exempt paths below — applied
-/// globally so REST and `/mcp` share one authentication path, instead of REST having none
-/// (as before) and `/mcp` having its own separate mechanism.
+/// Exige un token Bearer válido en cualquier ruta salvo las rutas exentas de abajo —
+/// aplicado de forma global para que REST y `/mcp` compartan un único camino de
+/// autenticación, en vez de que REST no tuviera ninguno (como antes) y `/mcp` tuviera su
+/// propio mecanismo separado.
 ///
-/// Registered by `configureBearerAuth` with a ``RemoteJWKS`` backed by real WorkOS
-/// credentials — and unconditionally skipped in `.testing`, so the REST/MCP test suites
-/// of a consuming app don't need those credentials. `jwksSource` is typed as
-/// ``JWKSSource`` rather than the concrete `RemoteJWKS` so `BearerAuthMiddlewareTests`
-/// can still exercise this middleware end-to-end against a local key collection.
+/// Lo registra `configureBearerAuth` con un ``RemoteJWKS`` respaldado por credenciales
+/// reales de WorkOS — y se salta incondicionalmente en `.testing`, para que las suites de
+/// test REST/MCP de una app consumidora no necesiten esas credenciales. `jwksSource` está
+/// tipado como ``JWKSSource`` en vez de como el `RemoteJWKS` concreto para que
+/// `BearerAuthMiddlewareTests` pueda seguir ejercitando este middleware de extremo a
+/// extremo contra una colección de claves local.
 ///
-/// Internal, not public: `configureBearerAuth` is the only production call site, and
-/// nothing outside this module needs to construct one directly.
+/// Internal, no public: `configureBearerAuth` es el único punto de llamada en producción,
+/// y nada fuera de este módulo necesita construir uno directamente.
 struct BearerAuthMiddleware: AsyncMiddleware {
-    /// Paths that stay public: `/health` so a platform healthcheck (which can't
-    /// authenticate) keeps working, `/docs`/`/openapi.yaml` because they're
-    /// documentation, not data. The discovery endpoint is also exempt, but is matched
-    /// exactly via `exemptWellKnownPath`.
+    /// Rutas que permanecen públicas: `/health` para que un healthcheck de la plataforma
+    /// (que no puede autenticarse) siga funcionando, `/docs`/`/openapi.yaml` porque son
+    /// documentación, no datos. El endpoint de descubrimiento también está exento, pero se
+    /// compara de forma exacta a través de `exemptWellKnownPath`.
     static let exemptPaths: Set<String> = [
         "/health", "/docs", "/openapi.yaml"
     ]
@@ -49,10 +51,11 @@ struct BearerAuthMiddleware: AsyncMiddleware {
         let header: JWTHeader
         do {
             token = try bearerToken(from: request)
-            // Parsed once, here, and reused below both for the `kid`-based refresh
-            // decision and for the real `verify(_:header:using:)` call — rather than a
-            // `try?` re-parse for the refresh check that silently swallows a malformed
-            // header, leaving it to `verify` to notice on a second, separate parse.
+            // Se analiza una sola vez, aquí, y se reutiliza más abajo tanto para la
+            // decisión de refresco basada en `kid` como para la llamada real a
+            // `verify(_:header:using:)` — en vez de un `try?` que la volviera a analizar
+            // para la comprobación de refresco y tragase en silencio una cabecera mal
+            // formada, dejando que `verify` lo detectase en un segundo análisis separado.
             header = try verifier.header(of: token)
         } catch {
             request.logger.notice("Rejected unauthenticated request to \(request.url.path): \(error)")
@@ -62,21 +65,25 @@ struct BearerAuthMiddleware: AsyncMiddleware {
         var keys: JWTKeyCollection
         do {
             keys = try await jwksSource.currentKeys(forceRefresh: false)
-            // Refresh only when the token's own `kid` isn't one this cache recognizes —
-            // the one situation that plausibly means WorkOS rotated its signing key since
-            // our last fetch. Deliberately *not* a catch-and-retry around `verify` below:
-            // that would force a JWKS fetch for every rejected token regardless of cause
-            // (bad signature, expired, wrong issuer/audience/algorithm), letting an
-            // attacker cheaply trigger repeated remote fetches just by sending garbage.
+            // Solo se refresca cuando el `kid` del propio token no es uno que esta caché
+            // reconozca — la única situación que plausiblemente significa que WorkOS ha
+            // rotado su clave de firma desde nuestra última consulta. Deliberadamente
+            // *no* se hace un catch-and-retry alrededor del `verify` de más abajo: eso
+            // forzaría una consulta al JWKS por cada token rechazado sin importar la causa
+            // (firma incorrecta, caducado, issuer/audiencia/algoritmo equivocados),
+            // permitiendo que un atacante provocase repetidas consultas remotas baratas
+            // sin más que enviar basura.
             if let kid = header.kid, await !jwksSource.hasKey(kid: kid) {
                 keys = try await jwksSource.currentKeys(forceRefresh: true)
             }
         } catch {
-            // The token itself was never evaluated here — this is WorkOS or the network
-            // being unreachable, not an invalid token. Reporting 401 would claim we know
-            // the token is bad, when we actually couldn't check it at all; 503 (via Vapor's
-            // own ErrorMiddleware, same as any other infrastructure failure) says the right
-            // thing — try again — instead of telling a legitimate client its token is bad.
+            // El token en sí nunca ha llegado a evaluarse aquí — esto es que WorkOS o la
+            // red no están disponibles, no que el token sea inválido. Responder 401
+            // afirmaría que sabemos que el token es incorrecto, cuando en realidad no ha
+            // podido ni comprobarse; 503 (a través del propio ErrorMiddleware de Vapor,
+            // igual que cualquier otro fallo de infraestructura) transmite lo correcto —
+            // inténtalo de nuevo — en vez de decirle a un cliente legítimo que su token es
+            // incorrecto.
             request.logger.error("Could not fetch the WorkOS JWKS for \(request.url.path): \(error)")
             throw Abort(.serviceUnavailable, reason: "Authentication is temporarily unavailable.")
         }
@@ -88,11 +95,13 @@ struct BearerAuthMiddleware: AsyncMiddleware {
             request.logger.notice("Rejected unauthenticated request to \(request.url.path): \(error)")
             return unauthorizedResponse()
         }
-        // Publishes the validated claims on `request.storage` for whatever this request ends
-        // up calling to read — see `Request.authenticatedClaims`'s doc comment for why.
-        // Deliberately outside every `do` above: once the token itself checks out, any error
-        // the handler throws (e.g. a database failure) must propagate as-is to Vapor's own
-        // ErrorMiddleware (→ 500), not get relabeled as a 401 by this middleware.
+        // Publica las claims validadas en `request.storage` para que lo lea lo que sea que
+        // esta petición acabe invocando — el porqué está en el comentario de documentación
+        // de `Request.authenticatedClaims`. Deliberadamente fuera de todos los `do`
+        // anteriores: una vez que el token en sí es correcto, cualquier error que lance el
+        // handler (p. ej. un fallo de base de datos) debe propagarse tal cual hacia el
+        // propio ErrorMiddleware de Vapor (→ 500), no ser reetiquetado como un 401 por
+        // este middleware.
         request.authenticatedClaims = claims
         return try await next.respond(to: request)
     }

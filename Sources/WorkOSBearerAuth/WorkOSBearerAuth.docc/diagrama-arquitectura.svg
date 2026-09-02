@@ -1,0 +1,91 @@
+<svg viewBox="0 0 980 800" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Arquitectura general de WorkOSBearerAuth">
+  <defs>
+    <marker id="arrowA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#4a5568"/>
+    </marker>
+  </defs>
+  <style>
+    .bg { fill: #f8f9fb; }
+    .outer { fill: #ffffff; stroke: #94a3b8; stroke-width: 1.5; stroke-dasharray: 6 4; }
+    .box { fill: #ffffff; stroke: #4a5568; stroke-width: 1.5; }
+    .entry { fill: #dff5f2; stroke: #0f766e; stroke-width: 1.5; }
+    .actor { fill: #eef2ff; stroke: #4338ca; stroke-width: 1.5; }
+    .external { fill: #fff4e5; stroke: #b45309; stroke-width: 1.5; }
+    .title { font: 600 20px -apple-system, Helvetica, Arial, sans-serif; fill: #1a202c; }
+    .subtitle { font: 400 13.5px -apple-system, Helvetica, Arial, sans-serif; fill: #57606a; }
+    .colhdr { font: 700 13px -apple-system, Helvetica, Arial, sans-serif; fill: #57606a; }
+    .name { font: 700 14px -apple-system, Helvetica, Arial, sans-serif; fill: #1a202c; }
+    .desc { font: 400 12px -apple-system, Helvetica, Arial, sans-serif; fill: #57606a; }
+    .outerLbl { font: 700 13px -apple-system, Helvetica, Arial, sans-serif; fill: #64748b; }
+    .edge { fill: none; stroke: #4a5568; stroke-width: 1.6; marker-end: url(#arrowA); }
+    .edgeDashed { fill: none; stroke: #b45309; stroke-width: 1.6; stroke-dasharray: 6 4; marker-end: url(#arrowA); }
+  </style>
+  <rect class="bg" x="0" y="0" width="980" height="800" rx="12"/>
+  <text x="30" y="34" class="title">Arquitectura general</text>
+  <text x="30" y="54" class="subtitle">Quién llama a quién, dentro de tu aplicación Vapor y hacia WorkOS</text>
+
+  <!-- Client -->
+  <rect class="actor" x="110" y="70" width="300" height="50" rx="8"/>
+  <text x="260" y="100" text-anchor="middle" class="name">Cliente HTTP (REST o MCP)</text>
+  <line x1="260" y1="120" x2="260" y2="150" class="edge"/>
+
+  <!-- Outer app container -->
+  <rect class="outer" x="50" y="150" width="850" height="510" rx="14"/>
+  <text x="66" y="174" class="outerLbl">Tu aplicación (Vapor Application)</text>
+
+  <text x="90" y="205" class="colhdr">EN CADA PETICIÓN</text>
+  <text x="600" y="205" class="colhdr">UNA VEZ, AL ARRANCAR — EN TU configure(_:)</text>
+
+  <!-- Right column: boot -->
+  <rect class="box" x="580" y="215" width="300" height="50" rx="8"/>
+  <text x="730" y="245" text-anchor="middle" class="name">tu configure(_:)</text>
+  <line x1="730" y1="265" x2="730" y2="295" class="edge"/>
+
+  <rect class="entry" x="560" y="295" width="340" height="64" rx="8"/>
+  <text x="730" y="320" text-anchor="middle" class="name">configureBearerAuth(_:environment:)</text>
+  <text x="730" y="340" text-anchor="middle" class="desc">único punto de entrada público de la librería</text>
+
+  <line x1="730" y1="359" x2="730" y2="385" class="edge"/>
+  <rect class="box" x="560" y="385" width="340" height="56" rx="8"/>
+  <text x="730" y="408" text-anchor="middle" class="name">GET /.well-known/oauth-protected-resource</text>
+  <text x="730" y="426" text-anchor="middle" class="desc">metadatos RFC 9728, registrados aquí</text>
+
+  <!-- arrow from configureBearerAuth to BearerAuthMiddleware (left column) -->
+  <path d="M560,320 H480 V440 H445" class="edge"/>
+  <text x="340" y="316" class="desc" font-style="italic">registra el middleware</text>
+  <text x="340" y="331" class="desc" font-style="italic">una sola vez para toda</text>
+  <text x="340" y="346" class="desc" font-style="italic">la Application</text>
+
+  <!-- Left column: per-request spine -->
+  <rect class="box" x="90" y="415" width="360" height="64" rx="8"/>
+  <text x="270" y="440" text-anchor="middle" class="name">BearerAuthMiddleware</text>
+  <text x="270" y="459" text-anchor="middle" class="desc">rutas exentas, token, kid, verificación</text>
+
+  <!-- side boxes: verifier and jwks, placed below the discovery box so nothing overlaps -->
+  <path d="M450,436 H505 V498 H560" class="edge"/>
+  <rect class="box" x="560" y="470" width="320" height="56" rx="8"/>
+  <text x="720" y="494" text-anchor="middle" class="name" font-size="13">BearerTokenVerifier</text>
+  <text x="720" y="513" text-anchor="middle" class="desc">algoritmo · issuer · audiencia · exp/nbf</text>
+
+  <path d="M450,458 H520 V570 H560" class="edge"/>
+  <rect class="box" x="560" y="536" width="320" height="68" rx="8"/>
+  <text x="720" y="558" text-anchor="middle" class="name" font-size="13">JWKSSource → RemoteJWKS</text>
+  <text x="720" y="576" text-anchor="middle" class="desc">actor: cachea y refresca las claves</text>
+  <text x="720" y="592" text-anchor="middle" class="desc">públicas (ver diagrama de rotación)</text>
+
+  <line x1="270" y1="479" x2="270" y2="505" class="edge"/>
+  <rect class="box" x="90" y="505" width="360" height="54" rx="8" fill="#f6f8fa"/>
+  <text x="270" y="528" text-anchor="middle" class="name" font-size="13">request.storage</text>
+  <text x="270" y="546" text-anchor="middle" class="desc">→ request.authenticatedClaims</text>
+
+  <line x1="270" y1="559" x2="270" y2="585" class="edge"/>
+  <rect class="box" x="90" y="585" width="360" height="54" rx="8"/>
+  <text x="270" y="608" text-anchor="middle" class="name" font-size="13">Tus rutas REST / MCP</text>
+  <text x="270" y="626" text-anchor="middle" class="desc">leen la identidad ya validada</text>
+
+  <!-- Dashed line to WorkOS external -->
+  <path d="M720,604 V705 H720" class="edgeDashed"/>
+  <rect class="external" x="570" y="705" width="300" height="60" rx="8"/>
+  <text x="720" y="730" text-anchor="middle" class="name">WorkOS AuthKit</text>
+  <text x="720" y="748" text-anchor="middle" class="desc">&lt;issuer&gt;/oauth2/jwks (fuera de esta app)</text>
+</svg>

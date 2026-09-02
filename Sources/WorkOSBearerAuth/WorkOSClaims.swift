@@ -1,26 +1,32 @@
 import JWTKit
 
-/// The claims this application relies on from a WorkOS AuthKit access token.
+/// Las claims de un access token de WorkOS AuthKit de las que depende esta aplicación.
 ///
-/// `iss`/`aud` are checked explicitly by ``BearerTokenVerifier`` against the configured
-/// issuer and accepted audiences (resource indicators) — not inside ``verify(using:)`` —
-/// because those expected values are runtime configuration (different per environment),
-/// not something this type can know on its own.
+/// `iss`/`aud` los comprueba explícitamente `BearerTokenVerifier` contra el issuer
+/// configurado y las audiencias aceptadas (resource indicators) — no dentro de
+/// ``verify(using:)`` — porque esos valores esperados son configuración de tiempo de
+/// ejecución (distinta en cada entorno), algo que este tipo no puede conocer por sí
+/// mismo.
 ///
-/// `nbf` is optional per RFC 7519 §4.1.5 — WorkOS documents checking it "if present"
-/// rather than guaranteeing it's always issued (https://workos.com/guide/jwt-validation)
-/// — decoded here so ``verify(using:)`` can still enforce it when it does show up,
-/// instead of a token that isn't valid yet slipping through because this type never
-/// looked at the claim at all.
+/// `nbf` es opcional según el RFC 7519 §4.1.5 — WorkOS documenta que se comprueba "si
+/// está presente", en vez de garantizar que siempre se emite
+/// (https://workos.com/guide/jwt-validation) — se decodifica aquí para que
+/// ``verify(using:)`` pueda exigirlo igualmente cuando aparece, en vez de dejar pasar un
+/// token que todavía no es válido solo porque este tipo nunca llegó a mirar esa claim.
 ///
-/// Public (and its properties too) because `Request.authenticatedClaims` — the one thing
-/// a consuming application reads — returns this type directly; nothing outside this
-/// module ever constructs one, so no public initializer is needed.
+/// Public (y también sus propiedades) porque `Request.authenticatedClaims` — lo único
+/// que lee una aplicación consumidora — devuelve este tipo directamente; nada fuera de
+/// este módulo construye uno nunca, así que no hace falta un inicializador público.
 public struct WorkOSClaims: JWTPayload, Sendable {
+    /// El emisor del token — la URL del issuer de WorkOS AuthKit. Ver `BearerTokenVerifier`.
     public let iss: IssuerClaim
+    /// Para qué recurso(s) es válido este token (los resource indicators). Ver `BearerTokenVerifier`.
     public let aud: AudienceClaim
+    /// El instante a partir del cual el token deja de ser válido.
     public let exp: ExpirationClaim
+    /// El instante a partir del cual el token empieza a ser válido, si WorkOS lo incluyó.
     public let nbf: NotBeforeClaim?
+    /// El identificador del usuario autenticado.
     public let sub: SubjectClaim
 
     public func verify(using key: some JWTAlgorithm) throws {

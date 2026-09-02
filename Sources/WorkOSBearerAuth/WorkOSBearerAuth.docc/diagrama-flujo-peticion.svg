@@ -1,0 +1,97 @@
+<svg viewBox="0 0 940 800" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="El recorrido completo de una petición a través de BearerAuthMiddleware">
+  <defs>
+    <marker id="arrowF" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#4a5568"/>
+    </marker>
+  </defs>
+  <style>
+    .bg { fill: #f8f9fb; }
+    .box { fill: #ffffff; stroke: #4a5568; stroke-width: 1.5; }
+    .decision { fill: #eef2ff; stroke: #4338ca; stroke-width: 1.5; }
+    .ok { fill: #e6f4ea; stroke: #1e7e34; stroke-width: 1.5; }
+    .warn { fill: #fff4e5; stroke: #b45309; stroke-width: 1.5; }
+    .err { fill: #fdecea; stroke: #b91c1c; stroke-width: 1.5; }
+    .title { font: 600 20px -apple-system, Helvetica, Arial, sans-serif; fill: #1a202c; }
+    .subtitle { font: 400 13.5px -apple-system, Helvetica, Arial, sans-serif; fill: #57606a; }
+    .body { font: 400 13.5px -apple-system, Helvetica, Arial, sans-serif; fill: #1a202c; }
+    .lbl { font: 700 12.5px -apple-system, Helvetica, Arial, sans-serif; fill: #4338ca; }
+    .edge { fill: none; stroke: #4a5568; stroke-width: 1.6; marker-end: url(#arrowF); }
+  </style>
+  <rect class="bg" x="0" y="0" width="940" height="800" rx="12"/>
+  <text x="30" y="34" class="title">El recorrido completo de una petición</text>
+  <text x="30" y="54" class="subtitle">Lo que hace BearerAuthMiddleware, paso a paso, con cada posible desenlace</text>
+
+  <!-- 1 -->
+  <rect class="box" x="140" y="72" width="340" height="50" rx="8"/>
+  <text x="310" y="102" text-anchor="middle" class="body">Llega una petición HTTP</text>
+  <line x1="310" y1="122" x2="310" y2="150" class="edge"/>
+
+  <!-- 2: exempt path -->
+  <rect class="decision" x="120" y="150" width="380" height="72" rx="8"/>
+  <text x="310" y="174" text-anchor="middle" class="body">¿Ruta exenta? (/health, /docs,</text>
+  <text x="310" y="194" text-anchor="middle" class="body">/openapi.yaml, o el discovery — coincidencia EXACTA)</text>
+  <text x="545" y="182" class="lbl">SÍ</text>
+  <path d="M500,186 H640" class="edge"/>
+  <rect class="ok" x="640" y="158" width="260" height="52" rx="8"/>
+  <text x="770" y="180" text-anchor="middle" class="body">Se sirve directamente,</text>
+  <text x="770" y="198" text-anchor="middle" class="body">sin autenticación</text>
+
+  <text x="325" y="248" class="lbl">NO</text>
+  <line x1="310" y1="222" x2="310" y2="256" class="edge"/>
+
+  <!-- 3: bearer header -->
+  <rect class="decision" x="120" y="256" width="380" height="60" rx="8"/>
+  <text x="310" y="282" text-anchor="middle" class="body">¿Cabecera Authorization: Bearer</text>
+  <text x="310" y="300" text-anchor="middle" class="body">presente y bien formada?</text>
+  <text x="545" y="278" class="lbl">NO</text>
+  <path d="M500,282 H640" class="edge"/>
+  <rect class="warn" x="640" y="256" width="260" height="60" rx="8"/>
+  <text x="770" y="280" text-anchor="middle" class="body">401 Unauthorized +</text>
+  <text x="770" y="298" text-anchor="middle" class="body">WWW-Authenticate</text>
+
+  <text x="325" y="342" class="lbl">SÍ</text>
+  <line x1="310" y1="316" x2="310" y2="350" class="edge"/>
+
+  <!-- 4: fetch keys -->
+  <rect class="box" x="120" y="350" width="380" height="76" rx="8"/>
+  <text x="310" y="374" text-anchor="middle" class="body">Se leen (sin verificar) alg / kid, y se</text>
+  <text x="310" y="392" text-anchor="middle" class="body">obtienen las claves JWKS (caché o</text>
+  <text x="310" y="410" text-anchor="middle" class="body">refresco — ver diagrama de rotación)</text>
+  <text x="512" y="368" class="lbl" fill="#b91c1c">si falla</text>
+  <path d="M500,388 H640" class="edge"/>
+  <rect class="err" x="640" y="358" width="260" height="60" rx="8"/>
+  <text x="770" y="382" text-anchor="middle" class="body">503 Service Unavailable</text>
+  <text x="770" y="400" text-anchor="middle" class="body" font-size="12">WorkOS / la red no responden</text>
+
+  <text x="325" y="452" class="lbl">se obtienen</text>
+  <line x1="310" y1="426" x2="310" y2="460" class="edge"/>
+
+  <!-- 5: full verification -->
+  <rect class="decision" x="120" y="460" width="380" height="98" rx="8"/>
+  <text x="310" y="484" text-anchor="middle" class="body">¿Algoritmo permitido, kid válido si se</text>
+  <text x="310" y="502" text-anchor="middle" class="body">exige, firma correcta, issuer y audiencia</text>
+  <text x="310" y="520" text-anchor="middle" class="body">coinciden, y exp/nbf en rango?</text>
+  <text x="545" y="490" class="lbl">NO</text>
+  <path d="M500,500 H640" class="edge"/>
+  <rect class="warn" x="640" y="474" width="260" height="60" rx="8"/>
+  <text x="770" y="498" text-anchor="middle" class="body">401 Unauthorized +</text>
+  <text x="770" y="516" text-anchor="middle" class="body">WWW-Authenticate</text>
+
+  <text x="325" y="584" class="lbl">SÍ</text>
+  <line x1="310" y1="558" x2="310" y2="592" class="edge"/>
+
+  <!-- 6 -->
+  <rect class="box" x="120" y="592" width="380" height="60" rx="8" fill="#f6f8fa"/>
+  <text x="310" y="616" text-anchor="middle" class="body">Se guardan las claims validadas en</text>
+  <text x="310" y="634" text-anchor="middle" class="body">request.storage (→ authenticatedClaims)</text>
+  <line x1="310" y1="652" x2="310" y2="680" class="edge"/>
+
+  <!-- 7 -->
+  <rect class="ok" x="120" y="680" width="380" height="56" rx="8"/>
+  <text x="310" y="704" text-anchor="middle" class="body">La petición sigue hacia tu handler real</text>
+  <text x="310" y="722" text-anchor="middle" class="body">— 200 (o lo que éste decida)</text>
+
+  <!-- Footnote -->
+  <rect x="120" y="752" width="780" height="40" rx="8" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="136" y="777" font-size="12.5" font-family="-apple-system, Helvetica, Arial, sans-serif" fill="#1a202c">Un error que tu propio handler lance <tspan font-weight="700">después</tspan> de este punto (p. ej. un fallo de base de datos) no lo reinterpreta este middleware.</text>
+</svg>

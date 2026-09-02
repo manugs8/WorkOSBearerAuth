@@ -1,51 +1,54 @@
 import JWTKit
 
-/// Verifies a JWT's algorithm, signature, issuer, audience, expiry, and (when present)
-/// not-before time against a given key collection. This is *not* where the
-/// `Authorization: Bearer <token>` header itself is parsed — `BearerAuthMiddleware`
-/// strips the `Bearer ` prefix before ever calling this type; `verify(_:using:)` only
-/// ever sees the raw JWT string. Deliberately takes the `JWTKeyCollection` as a
-/// parameter rather than owning a ``RemoteJWKS`` itself, so tests can exercise the
-/// actual verification logic — the part that matters for security — against a
-/// locally-generated test key, with no network dependency on WorkOS. ``RemoteJWKS``
-/// (fetching/caching the real keys over HTTP) and this type's claim checks are
-/// deliberately separate concerns.
+/// Verifica el algoritmo, la firma, el issuer, la audiencia, la caducidad y (cuando está
+/// presente) el not-before de un JWT contra una colección de claves dada. Este *no* es el
+/// sitio donde se analiza la propia cabecera `Authorization: Bearer <token>` —
+/// `BearerAuthMiddleware` retira el prefijo `Bearer ` antes de llamar siquiera a este
+/// tipo; `verify(_:using:)` solo llega a ver la cadena JWT en crudo. Recibe la
+/// `JWTKeyCollection` como parámetro de forma deliberada, en vez de poseer un
+/// ``RemoteJWKS`` propio, para que los tests puedan ejercitar la lógica de verificación
+/// real — la parte que de verdad importa para la seguridad — contra una clave de prueba
+/// generada localmente, sin ninguna dependencia de red con WorkOS. ``RemoteJWKS`` (la
+/// obtención/caché de las claves reales por HTTP) y las comprobaciones de claims de este
+/// tipo son, deliberadamente, responsabilidades separadas.
 ///
-/// Internal, not public: nothing outside this module needs to construct or call one
-/// directly — `configureBearerAuth` is the only production call site, and the test
-/// target reaches this via `@testable import`.
+/// Internal, no public: nada fuera de este módulo necesita construir uno o llamarlo
+/// directamente — `configureBearerAuth` es el único punto de llamada en producción, y el
+/// target de tests llega hasta aquí vía `@testable import`.
 struct BearerTokenVerifier: Sendable {
     let issuer: String
     let audiences: Set<String>
 
-    /// The only signing algorithms this application trusts, checked against the token's
-    /// own (unverified) header *before* any signature check. WorkOS AuthKit signs access
-    /// tokens with RS256 (https://workos.com/guide/jwt-validation) — pinned explicitly
-    /// here rather than implicitly trusting whichever algorithm `JWTKeyCollection` would
-    /// otherwise select for a matching `kid`, so a token whose header claims an
-    /// unexpected algorithm is rejected outright. Overridable per instance so tests can
-    /// exercise this same code path against locally-signed HMAC fixtures instead of a
-    /// real RSA keypair. `let`, not `var` — a verifier's policy doesn't change after
-    /// it's built.
+    /// Los únicos algoritmos de firma en los que confía esta aplicación, comprobados
+    /// contra la cabecera (todavía sin verificar) del propio token *antes* de cualquier
+    /// comprobación de firma. WorkOS AuthKit firma los access tokens con RS256
+    /// (https://workos.com/guide/jwt-validation) — fijado aquí de forma explícita en vez
+    /// de confiar implícitamente en el algoritmo que `JWTKeyCollection` elegiría para un
+    /// `kid` coincidente, de modo que un token cuya cabecera declare un algoritmo
+    /// inesperado se rechaza sin más. Se puede sobreescribir por instancia para que los
+    /// tests ejerciten esta misma ruta de código contra fixtures HMAC firmados
+    /// localmente, en vez de un par de claves RSA real. `let`, no `var` — la política de
+    /// un verifier no cambia una vez construido.
     let allowedAlgorithms: Set<String>
 
-    /// Whether a token without a `kid` header is rejected outright, instead of falling
-    /// back to whichever key `JWTKeyCollection` treats as its default. `true` in
-    /// production: with real key rotation (more than one WorkOS signing key live at
-    /// once), a legitimate token always carries `kid` — one that doesn't is either
-    /// malformed or crafted, and "try the default key and see if the signature happens
-    /// to match" is exactly the kind of implicit, library-dependent fallback a bearer
-    /// token policy shouldn't rely on. Overridable per instance for the same reason as
-    /// `allowedAlgorithms`.
+    /// Si un token sin cabecera `kid` se rechaza directamente, en vez de recurrir a la
+    /// clave que `JWTKeyCollection` trate como su valor por defecto. `true` en
+    /// producción: con rotación de claves real (más de una clave de firma de WorkOS viva
+    /// a la vez), un token legítimo siempre lleva `kid` — uno que no lo lleve está
+    /// malformado o ha sido manipulado, y "probar la clave por defecto a ver si la firma
+    /// cuadra" es exactamente el tipo de comportamiento implícito y dependiente de la
+    /// librería en el que una política de tokens Bearer no debería apoyarse. Se puede
+    /// sobreescribir por instancia por el mismo motivo que `allowedAlgorithms`.
     let requiresKeyID: Bool
 
-    /// - Precondition: `allowedAlgorithms` must not be empty. An empty set isn't a
-    ///   stricter policy — it's a verifier that rejects every token unconditionally, and
-    ///   silently: nothing about `verify(_:using:)`'s 401s would tell you the real cause
-    ///   is a misconfigured allow-list. This can only happen from a hardcoded mistake in
-    ///   source (the one production call site, `makeProductionBearerTokenVerifier`,
-    ///   never overrides the default), so it fails loudly here instead of quietly at
-    ///   request time.
+    /// - Precondition: `allowedAlgorithms` no puede estar vacío. Un conjunto vacío no es
+    ///   una política más estricta — es un verifier que rechaza todos los tokens
+    ///   incondicionalmente, y en silencio: nada en los 401 de `verify(_:using:)` diría
+    ///   que la causa real es una lista de algoritmos permitidos mal configurada. Esto
+    ///   solo puede ocurrir por un error fijado en el propio código fuente (el único
+    ///   punto de llamada en producción, `makeProductionBearerTokenVerifier`, nunca
+    ///   sobreescribe el valor por defecto), así que falla aquí de forma ruidosa en vez
+    ///   de hacerlo calladamente en tiempo de petición.
     init(
         issuer: String, audiences: Set<String>, allowedAlgorithms: Set<String> = ["RS256"],
         requiresKeyID: Bool = true
@@ -60,28 +63,30 @@ struct BearerTokenVerifier: Sendable {
         self.requiresKeyID = requiresKeyID
     }
 
-    /// Decodes (without verifying) a token's header. Shared by this type's own algorithm
-    /// check below and by `BearerAuthMiddleware`'s decision of whether an unrecognized
-    /// `kid` warrants a forced JWKS refresh, so the header is parsed in one place rather
-    /// than two independent implementations that could drift apart.
+    /// Decodifica (sin verificar) la cabecera de un token. La comparten tanto la propia
+    /// comprobación de algoritmo de este tipo, más abajo, como la decisión de
+    /// `BearerAuthMiddleware` sobre si un `kid` no reconocido justifica un refresco
+    /// forzado del JWKS, de modo que la cabecera se analiza en un único sitio en vez de en
+    /// dos implementaciones independientes que podrían acabar divergiendo.
     func header(of token: String) throws -> JWTHeader {
         try DefaultJWTParser().parse([UInt8](token.utf8), as: WorkOSClaims.self).header
     }
 
-    /// Verifies `token` against `keys`, parsing its header itself. Prefer
-    /// `verify(_:header:using:)` when the caller already parsed the header for another
-    /// reason (e.g. `BearerAuthMiddleware`'s `kid` check), to avoid parsing it twice.
+    /// Verifica `token` contra `keys`, analizando su cabecera por sí mismo. Prefiere
+    /// `verify(_:header:using:)` cuando quien llama ya ha analizado la cabecera por otro
+    /// motivo (p. ej. la comprobación de `kid` de `BearerAuthMiddleware`), para evitar
+    /// analizarla dos veces.
     func verify(_ token: String, using keys: JWTKeyCollection) async throws -> WorkOSClaims {
         try await verify(token, header: header(of: token), using: keys)
     }
 
-    /// Verifies `token` against `keys`, reusing an already-parsed `header` instead of
-    /// decoding it again.
+    /// Verifica `token` contra `keys`, reutilizando una `header` ya analizada en vez de
+    /// volver a decodificarla.
     ///
-    /// - Throws: ``BearerTokenError`` if the algorithm, issuer, or audience don't check
-    ///   out; whatever `JWTKeyCollection.verify` / `WorkOSClaims.verify(using:)` throws
-    ///   for a bad signature, an unknown `kid`, or a token that's expired or not yet
-    ///   valid.
+    /// - Throws: ``BearerTokenError`` si el algoritmo, el issuer o la audiencia no son
+    ///   correctos; o lo que sea que lancen `JWTKeyCollection.verify` /
+    ///   `WorkOSClaims.verify(using:)` ante una firma incorrecta, un `kid` desconocido, o
+    ///   un token caducado o todavía no válido.
     func verify(_ token: String, header: JWTHeader, using keys: JWTKeyCollection) async throws -> WorkOSClaims {
         guard let alg = header.alg, allowedAlgorithms.contains(alg) else {
             throw BearerTokenError.unexpectedAlgorithm(header.alg)
@@ -90,10 +95,11 @@ struct BearerTokenVerifier: Sendable {
             throw BearerTokenError.missingKeyID
         }
 
-        // `keys.verify` invokes `WorkOSClaims.verify(using:)` as part of verification,
-        // which checks `exp` and (when present) `nbf` — the single source of truth for
-        // those two, not duplicated here. This type owns application policy (algorithm,
-        // issuer, audience); `WorkOSClaims` owns the token's own temporal validity.
+        // `keys.verify` invoca a `WorkOSClaims.verify(using:)` como parte de la
+        // verificación, que comprueba `exp` y (cuando está presente) `nbf` — la única
+        // fuente de verdad para esas dos cosas, no duplicada aquí. Este tipo es dueño de
+        // la política de la aplicación (algoritmo, issuer, audiencia); `WorkOSClaims` es
+        // dueño de la validez temporal propia del token.
         let claims = try await keys.verify(token, as: WorkOSClaims.self)
         guard claims.iss.value == issuer else {
             throw BearerTokenError.unexpectedIssuer(claims.iss.value)
@@ -105,11 +111,19 @@ struct BearerTokenVerifier: Sendable {
     }
 }
 
+/// Errores que puede producir la verificación de un token Bearer durante una petición.
+/// Todos ellos terminan en una respuesta 401 con cabecera `WWW-Authenticate` — nunca en
+/// un 503, porque en todos estos casos el token sí ha llegado a comprobarse.
 enum BearerTokenError: Error, CustomStringConvertible {
+    /// Falta la cabecera `Authorization: Bearer …`, o no tiene el formato esperado.
     case missingBearerToken
+    /// El algoritmo declarado en la cabecera del token no está en `allowedAlgorithms`.
     case unexpectedAlgorithm(String?)
+    /// El token no lleva `kid` y el verifier lo exige (`requiresKeyID == true`).
     case missingKeyID
+    /// El `iss` del token no coincide con el issuer configurado.
     case unexpectedIssuer(String)
+    /// El `aud` del token no coincide con ninguno de los resource indicators configurados.
     case unexpectedAudience([String])
 
     var description: String {
