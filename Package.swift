@@ -10,7 +10,11 @@ let package = Package(
         .macOS(.v13)
     ],
     products: [
-        .library(name: "WorkOSBearerAuth", targets: ["WorkOSBearerAuth"])
+        .library(name: "WorkOSBearerAuth", targets: ["WorkOSBearerAuth"]),
+        // Separate from `WorkOSBearerAuth` itself, and deliberately dependency-light (no
+        // Vapor): an E2E test-support module signing a token has no reason to link the
+        // server-side stack.
+        .library(name: "WorkOSBearerAuthTesting", targets: ["WorkOSBearerAuthTesting"]),
     ],
     dependencies: [
         .package(url: "https://github.com/vapor/vapor.git", from: "4.115.0"),
@@ -30,6 +34,20 @@ let package = Package(
             dependencies: [
                 .target(name: "WorkOSBearerAuth"),
                 .product(name: "VaporTesting", package: "vapor"),
+            ],
+            swiftSettings: swiftSettings
+        ),
+        .target(
+            name: "WorkOSBearerAuthTesting",
+            dependencies: [
+                .product(name: "JWTKit", package: "jwt-kit")
+            ],
+            swiftSettings: swiftSettings
+        ),
+        .testTarget(
+            name: "WorkOSBearerAuthTestingTests",
+            dependencies: [
+                .target(name: "WorkOSBearerAuthTesting")
             ],
             swiftSettings: swiftSettings
         ),

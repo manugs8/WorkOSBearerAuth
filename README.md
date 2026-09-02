@@ -17,6 +17,7 @@ interface (e.g. an MCP server mounted on the same `Application`) behind the same
   - [Discovery route (RFC 9728)](#discovery-route-rfc-9728)
   - [401 vs. 503](#401-vs-503)
   - [JWKS refresh](#jwks-refresh)
+- [Signing test tokens for your own E2E suite](#signing-test-tokens-for-your-own-e2e-suite)
 - [Design notes](#design-notes)
 - [Testing](#testing)
 
@@ -122,6 +123,43 @@ rotation), not a refresh per rejected request — that would let an attacker che
 repeated remote fetches just by sending garbage tokens. Concurrent refreshes are coalesced
 into a single in-flight fetch.
 
+## Signing test tokens for your own E2E suite
+
+If your app's E2E suite talks to a real, already-running server over the network (rather
+than an in-process `Application`), it needs a bearer token the server will accept exactly
+as it would a genuine WorkOS-issued one — typically paired with a fake Authorization
+Server that serves the matching public key as a JWKS document, so the server under test
+verifies the token through its normal `RemoteJWKS`/`BearerAuthMiddleware` path, no
+test-only bypass involved.
+
+`WorkOSBearerAuthTesting` is a separate product for exactly this — deliberately
+dependency-light (`JWTKit` + `Foundation`, no `Vapor`), since a test-support module has no
+reason to link the server-side stack:
+
+```swift
+.package(url: "https://github.com/manugs8/WorkOSBearerAuth.git", from: "0.1.0")
+
+// in the target that needs it:
+.product(name: "WorkOSBearerAuthTesting", package: "WorkOSBearerAuth")
+```
+
+```swift
+import WorkOSBearerAuthTesting
+
+let signer = WorkOSTestTokenSigner(
+    issuer: ProcessInfo.processInfo.environment["E2E_AUTH_TEST_ISSUER"] ?? "http://fake-authkit",
+    resource: ProcessInfo.processInfo.environment["E2E_AUTH_TEST_RESOURCE"] ?? "http://localhost:8080",
+    privateKeyPEM: ProcessInfo.processInfo.environment["E2E_AUTH_TEST_PRIVATE_KEY"]
+)
+
+let token = try await signer.validToken()      // nil if privateKeyPEM is nil
+let expired = try await signer.expiredToken()  // exp already in the past
+```
+
+As with `BearerAuthEnvironmentConfig`, `WorkOSTestTokenSigner` takes every value as a
+parameter rather than reading the environment itself — your own E2E setup decides where
+`issuer`/`resource`/the private key come from and under what variable names.
+
 ## Design notes
 
 - **`Request.storage`, not a `@TaskLocal`.** A task-local set inside `BearerAuthMiddleware`
@@ -137,11 +175,15 @@ into a single in-flight fetch.
   configuration branching (the four cases above) can be tested by constructing different
   `BearerAuthEnvironmentConfig` values directly, without mutating real process environment
   variables per test case.
-- **Minimal public surface.** Only `configureBearerAuth`, `BearerAuthEnvironmentConfig`,
-  and `WorkOSClaims` (as the type of `Request.authenticatedClaims`) are public. Everything
-  else this library uses internally (`BearerTokenVerifier`, `BearerAuthMiddleware`,
-  `RemoteJWKS`, `JWKSSource`, the internal `ConfigurationError`) stays module-internal — no
-  consumer needs to construct any of them directly.
+- **Minimal public surface.** In `WorkOSBearerAuth`, only `configureBearerAuth`,
+  `BearerAuthEnvironmentConfig`, and `WorkOSClaims` (as the type of
+  `Request.authenticatedClaims`) are public. Everything else this library uses internally
+  (`BearerTokenVerifier`, `BearerAuthMiddleware`, `RemoteJWKS`, `JWKSSource`, the internal
+  `ConfigurationError`) stays module-internal — no consumer needs to construct any of them
+  directly. `WorkOSBearerAuthTesting` is smaller still: just `WorkOSTestTokenSigner`.
+- **Two products, not one.** `WorkOSBearerAuthTesting` depends on `JWTKit` alone; folding
+  it into `WorkOSBearerAuth` would force anything that only wants to sign a test token to
+  also link `Vapor` and everything it pulls in.
 
 ## Testing
 
