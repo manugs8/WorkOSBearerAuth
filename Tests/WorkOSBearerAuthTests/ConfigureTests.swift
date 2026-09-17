@@ -207,6 +207,74 @@ struct ConfigureTests {
             }
         }
     }
+    // 14. loopback http issuer with the exception enabled succeeds
+    @Test("HTTP loopback issuer succeeds when allowHTTPLoopbackIssuer is true")
+    func httpLoopbackIssuerSucceedsWhenExceptionEnabled() async throws {
+        try await Self.withApp(environment: .development) { app in
+            let env = BearerAuthEnvironmentConfig(
+                authDisabled: false,
+                workOSIssuer: "http://127.0.0.1:8090",
+                workOSResourceIndicatorsRaw: "https://api.example.com",
+                allowHTTPLoopbackIssuer: true
+            )
+            try configureBearerAuth(app, environment: env)
+
+            let route = try #require(app.routes.all.first { $0.path.map(\.description) == [".well-known", "oauth-protected-resource"] })
+            #expect(route.path.count == 2)
+        }
+    }
+
+    // 15. loopback http issuer still throws when the exception is not enabled (the default)
+    @Test("HTTP loopback issuer still throws when allowHTTPLoopbackIssuer is false")
+    func httpLoopbackIssuerThrowsWhenExceptionDisabled() async throws {
+        try await Self.withApp(environment: .development) { app in
+            let env = BearerAuthEnvironmentConfig(
+                authDisabled: false,
+                workOSIssuer: "http://127.0.0.1:8090",
+                workOSResourceIndicatorsRaw: "https://api.example.com"
+            )
+
+            #expect(throws: ConfigurationError.invalidIssuer) {
+                try configureBearerAuth(app, environment: env)
+            }
+        }
+    }
+
+    // 16. the exception never widens beyond loopback hosts, even when enabled
+    @Test("HTTP non-loopback issuer still throws even when allowHTTPLoopbackIssuer is true")
+    func httpNonLoopbackIssuerThrowsEvenWhenExceptionEnabled() async throws {
+        try await Self.withApp(environment: .development) { app in
+            let env = BearerAuthEnvironmentConfig(
+                authDisabled: false,
+                workOSIssuer: "http://example.workos.com",
+                workOSResourceIndicatorsRaw: "https://api.example.com",
+                allowHTTPLoopbackIssuer: true
+            )
+
+            #expect(throws: ConfigurationError.invalidIssuer) {
+                try configureBearerAuth(app, environment: env)
+            }
+        }
+    }
+
+    // 17. the exception is gated purely by the flag, not by `Environment` — production
+    // safety comes from render.yaml never setting it, not from an environment check.
+    @Test("HTTP loopback issuer succeeds even in .production when the flag is explicitly set")
+    func httpLoopbackIssuerSucceedsInProductionWhenFlagExplicitlySet() async throws {
+        try await Self.withApp(environment: .production) { app in
+            let env = BearerAuthEnvironmentConfig(
+                authDisabled: false,
+                workOSIssuer: "http://localhost:8090",
+                workOSResourceIndicatorsRaw: "https://api.example.com",
+                allowHTTPLoopbackIssuer: true
+            )
+            try configureBearerAuth(app, environment: env)
+
+            let route = try #require(app.routes.all.first { $0.path.map(\.description) == [".well-known", "oauth-protected-resource"] })
+            #expect(route.path.count == 2)
+        }
+    }
+
     // 13. Discovery endpoint with path works according to RFC 9728
     @Test("Discovery endpoint inserts path per RFC 9728")
     func discoveryEndpointWithPath() async throws {

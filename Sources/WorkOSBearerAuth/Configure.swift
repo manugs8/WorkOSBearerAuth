@@ -23,20 +23,36 @@ public struct BearerAuthEnvironmentConfig: Sendable {
     /// `.production`.
     public let authDisabled: Bool
     /// La URL del issuer de WorkOS AuthKit (p. ej. `https://tu-proyecto.authkit.app`).
-    /// Debe ser una URL absoluta `https://` con host — `configureBearerAuth` la valida
-    /// antes de usarla.
+    /// Debe ser una URL absoluta `https://` con host — salvo la excepción estrecha de
+    /// `allowHTTPLoopbackIssuer` — `configureBearerAuth` la valida antes de usarla.
     public let workOSIssuer: String?
     /// El valor en crudo, tal cual, de `WORKOS_RESOURCE_INDICATORS`: uno o varios
     /// indicadores de recurso separados por comas (p. ej.
     /// `"https://api.example.com/mcp,http://localhost:8080/mcp"`). `configureBearerAuth`
     /// se encarga de dividirlo, recortar espacios y validar cada valor.
     public let workOSResourceIndicatorsRaw: String?
+    /// Excepción estrecha a "issuer siempre `https://`" (ADR 0010 de `FinanceCore`): si es
+    /// `true` y el issuer es `http://127.0.0.1:<puerto>` o `http://localhost:<puerto>`, se
+    /// acepta en vez de lanzar `invalidIssuer`. Pensado solo para un `AuthMock`/servidor de
+    /// prueba corriendo en la misma máquina — tráfico loopback no atraviesa ninguna red
+    /// interceptable, así que el argumento de seguridad detrás de exigir HTTPS no aplica
+    /// igual ahí. `false` por defecto: quien consume la librería debe fijarlo explícitamente
+    /// (nunca a partir de detectar `.production`/`.testing` por sí solo) para que una
+    /// variable de entorno mal puesta en producción no rebaje esta protección en silencio —
+    /// no se activa por sí sola aunque el issuer resulte ser loopback.
+    public let allowHTTPLoopbackIssuer: Bool
 
     /// Crea la configuración de entrada para ``configureBearerAuth(_:environment:)``.
-    public init(authDisabled: Bool, workOSIssuer: String?, workOSResourceIndicatorsRaw: String?) {
+    public init(
+        authDisabled: Bool,
+        workOSIssuer: String?,
+        workOSResourceIndicatorsRaw: String?,
+        allowHTTPLoopbackIssuer: Bool = false
+    ) {
         self.authDisabled = authDisabled
         self.workOSIssuer = workOSIssuer
         self.workOSResourceIndicatorsRaw = workOSResourceIndicatorsRaw
+        self.allowHTTPLoopbackIssuer = allowHTTPLoopbackIssuer
     }
 }
 
@@ -98,7 +114,13 @@ public func configureBearerAuth(_ app: Application, environment: BearerAuthEnvir
         return
     }
     
-    guard let issuerURL = URL(string: issuer), issuerURL.scheme == "https", issuerURL.host != nil else {
+    guard let issuerURL = URL(string: issuer), let issuerHost = issuerURL.host else {
+        throw ConfigurationError.invalidIssuer
+    }
+    let isLoopbackHTTPException = environment.allowHTTPLoopbackIssuer
+        && issuerURL.scheme == "http"
+        && (issuerHost == "127.0.0.1" || issuerHost == "localhost")
+    guard issuerURL.scheme == "https" || isLoopbackHTTPException else {
         throw ConfigurationError.invalidIssuer
     }
 
