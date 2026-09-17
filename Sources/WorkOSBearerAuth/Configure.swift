@@ -1,8 +1,14 @@
 import Vapor
 
-/// Los valores derivados del entorno que necesita `configureBearerAuth`. Leer las
-/// llamadas reales a `Environment.get(...)` se deja al propio `configure.swift` de la
-/// aplicación consumidora — este tipo solo transporta los valores en crudo — para que:
+/// La configuración de entrada de ``configureBearerAuth(_:environment:)``. Un `enum`, no un
+/// struct con campos sueltos, para que las combinaciones sin sentido (un issuer de WorkOS
+/// con la excepción de loopback activada, o un issuer local sin ninguna forma de saber que
+/// lo es) no se puedan ni construir — cada caso lleva exactamente los datos que le hacen
+/// falta a esa configuración concreta, ni uno más.
+///
+/// Los valores en crudo (issuer, resource indicators) se pasan tal cual, sin leer
+/// `Environment.get(...)` dentro de esta librería — eso se deja al propio `configure.swift`
+/// de la aplicación consumidora — para que:
 ///
 /// 1. Esta librería nunca fije de forma rígida un conjunto concreto de *nombres* de
 ///    variables de entorno; quien la consume es libre de obtener estos valores como
@@ -11,56 +17,38 @@ import Vapor
 ///    ejercitar en tests construyendo directamente distintos valores de
 ///    `BearerAuthEnvironmentConfig`, en vez de mutar variables de entorno reales del
 ///    proceso en cada caso de test.
-///
-/// `workOSResourceIndicatorsRaw` se mantiene como una única cadena separada por comas
-/// (el formato propio de WorkOS para `WORKOS_RESOURCE_INDICATORS`) en vez de venir ya
-/// dividida en un `Set<String>` — el trabajo de dividir/recortar/comprobar que no esté
-/// vacío es analizar el formato de WorkOS, no algo específico del proyecto, así que sigue
-/// siendo responsabilidad de esta librería, no de quien la consume.
-public struct BearerAuthEnvironmentConfig: Sendable {
-    /// Vía de escape para desactivar la autenticación fuera de producción (tests locales,
-    /// entornos de desarrollo sin WorkOS a mano). `configureBearerAuth` la rechaza en
-    /// `.production`.
-    public let authDisabled: Bool
-    /// La URL del issuer de WorkOS AuthKit (p. ej. `https://tu-proyecto.authkit.app`).
-    /// Debe ser una URL absoluta `https://` con host — salvo la excepción estrecha de
-    /// `allowHTTPLoopbackIssuer` — `configureBearerAuth` la valida antes de usarla.
-    public let workOSIssuer: String?
-    /// El valor en crudo, tal cual, de `WORKOS_RESOURCE_INDICATORS`: uno o varios
-    /// indicadores de recurso separados por comas (p. ej.
-    /// `"https://api.example.com/mcp,http://localhost:8080/mcp"`). `configureBearerAuth`
-    /// se encarga de dividirlo, recortar espacios y validar cada valor.
-    public let workOSResourceIndicatorsRaw: String?
-    /// Excepción estrecha a "issuer siempre `https://`" (ADR 0010 de `FinanceCore`): si es
-    /// `true` y el issuer es `http://127.0.0.1:<puerto>` o `http://localhost:<puerto>`, se
-    /// acepta en vez de lanzar `invalidIssuer`. Pensado solo para un `AuthMock`/servidor de
-    /// prueba corriendo en la misma máquina — tráfico loopback no atraviesa ninguna red
-    /// interceptable, así que el argumento de seguridad detrás de exigir HTTPS no aplica
-    /// igual ahí. `false` por defecto: quien consume la librería debe fijarlo explícitamente
-    /// (nunca a partir de detectar `.production`/`.testing` por sí solo) para que una
-    /// variable de entorno mal puesta en producción no rebaje esta protección en silencio —
-    /// no se activa por sí sola aunque el issuer resulte ser loopback.
-    public let allowHTTPLoopbackIssuer: Bool
-
-    /// Crea la configuración de entrada para ``configureBearerAuth(_:environment:)``.
-    public init(
-        authDisabled: Bool,
-        workOSIssuer: String?,
-        workOSResourceIndicatorsRaw: String?,
-        allowHTTPLoopbackIssuer: Bool = false
-    ) {
-        self.authDisabled = authDisabled
-        self.workOSIssuer = workOSIssuer
-        self.workOSResourceIndicatorsRaw = workOSResourceIndicatorsRaw
-        self.allowHTTPLoopbackIssuer = allowHTTPLoopbackIssuer
-    }
+public enum BearerAuthEnvironmentConfig: Sendable {
+    /// Ninguna configuración de WorkOS disponible. Fuera de producción, la autenticación
+    /// queda desactivada con un aviso; en producción, `configureBearerAuth` se niega a
+    /// arrancar (`missingWorkOSEnvironment`) — no hay ninguna vía de escape explícita para
+    /// desactivarla ahí.
+    case disabled
+    /// Un issuer real de WorkOS AuthKit (p. ej. `https://tu-proyecto.authkit.app`) — debe
+    /// ser una URL absoluta `https://` con host, sin excepción. El único caso permitido en
+    /// producción, donde además es el único que `configureBearerAuth` acepta.
+    ///
+    /// `resourceIndicatorsRaw` es el valor en crudo, tal cual, de
+    /// `WORKOS_RESOURCE_INDICATORS`: uno o varios indicadores de recurso separados por comas
+    /// (p. ej. `"https://api.example.com/mcp,https://api.example.com/rest"`).
+    /// `configureBearerAuth` se encarga de dividirlo, recortar espacios y validar cada
+    /// valor — siempre `https://`, sin excepción, también bajo `.local`.
+    case workOS(issuer: String, resourceIndicatorsRaw: String)
+    /// Un `AuthMock`/servidor de prueba real corriendo en la misma máquina, en
+    /// `http://127.0.0.1:<port>` — nunca para desarrollo general ni para exponer tu propia
+    /// API por HTTP. El host no es un parámetro: siempre `127.0.0.1`, nunca `localhost` ni
+    /// nada configurable, así que no hace falta parsear ni validar ningún issuer para
+    /// confirmar que de verdad es loopback — este caso ya lo garantiza por construcción.
+    /// `configureBearerAuth` rechaza este caso en `.production` (`localConfigInProduction`),
+    /// para que la excepción no dependa solo de que nadie la active por error en un
+    /// despliegue real.
+    case local(port: Int, resourceIndicatorsRaw: String)
 }
 
 /// Registra `BearerAuthMiddleware` de forma global (para que REST y `/mcp` compartan un
 /// único camino de autenticación) y la ruta de descubrimiento RFC 9728 (OAuth Protected
 /// Resource Metadata) que necesita.
 ///
-/// Cuatro casos, según `environment`:
+/// Cuatro casos: el cortocircuito de `.testing`, más los tres de ``BearerAuthEnvironmentConfig``.
 /// 1. `.testing` — se salta incondicionalmente, sin importar lo que lleve `environment`.
 ///    El propio `.env.local` de una app consumidora puede llevar credenciales reales de
 ///    staging de WorkOS para `swift run`, así que una comprobación de variables de
@@ -69,59 +57,54 @@ public struct BearerAuthEnvironmentConfig: Sendable {
 ///    ejercitando de extremo a extremo en los propios tests de esta librería — ver
 ///    `BearerAuthMiddlewareTests`, que lo monta con un `JWKSSource` local sin red en vez
 ///    del `RemoteJWKS` real.
-/// 2. `environment.authDisabled` en producción — se niega a arrancar. Una vía de escape
-///    pensada solo para tests nunca debe llegar en silencio a un despliegue real.
-/// 3. `environment.authDisabled` fuera de producción, o ni `authDisabled` ni
-///    `workOSIssuer`/`workOSResourceIndicatorsRaw` están fijados — la autenticación se
-///    desactiva con un aviso bien visible, en vez de que todas las rutas queden
-///    silenciosamente accesibles sin ninguna señal.
-/// 4. `workOSIssuer`/`workOSResourceIndicatorsRaw` fijados — se exige una validación real
-///    de JWT/JWKS, también en producción, donde es obligatoria (si falta la
-///    configuración, lanza un error).
+/// 2. ``BearerAuthEnvironmentConfig/disabled`` — en producción se niega a arrancar
+///    (`missingWorkOSEnvironment`); fuera de producción, la autenticación se desactiva con
+///    un aviso bien visible, en vez de que todas las rutas queden silenciosamente
+///    accesibles sin ninguna señal.
+/// 3. ``BearerAuthEnvironmentConfig/workOS(issuer:resourceIndicatorsRaw:)`` — se exige una
+///    validación real de JWT/JWKS, en cualquier entorno, incluida producción.
+/// 4. ``BearerAuthEnvironmentConfig/local(port:resourceIndicatorsRaw:)`` — igual que el
+///    caso anterior, pero contra `http://127.0.0.1:<port>` en vez de un issuer `https://`.
+///    Lanza `localConfigInProduction` si `app.environment == .production`.
 ///
-/// - Throws: `authDisabledInProduction`, `missingWorkOSEnvironment`, o
-///   `emptyResourceIndicators` (los tres son privados a este módulo — quien consuma la
-///   librería y quiera registrar o propagar el fallo no necesita distinguir el caso
-///   concreto).
+/// - Throws: `missingWorkOSEnvironment`, `localConfigInProduction`, `emptyResourceIndicators`,
+///   o `invalidResourceIndicator` (todos privados a este módulo — quien consuma la librería
+///   y quiera registrar o propagar el fallo no necesita distinguir el caso concreto).
 public func configureBearerAuth(_ app: Application, environment: BearerAuthEnvironmentConfig) throws {
     guard app.environment != .testing else {
         app.logger.warning("Running in .testing — skipping bearer auth regardless of WorkOS environment.")
         return
     }
 
-    if environment.authDisabled {
-        guard app.environment != .production else {
-            throw ConfigurationError.authDisabledInProduction
-        }
-        app.logger.warning("Bearer auth disabled — REST and MCP requests are not authenticated.")
-        return
-    }
+    let issuer: String
+    let resourceIndicatorsRaw: String
 
-    guard
-        let issuer = environment.workOSIssuer,
-        let resourceIndicatorsRaw = environment.workOSResourceIndicatorsRaw
-    else {
+    switch environment {
+    case .disabled:
         guard app.environment != .production else {
             throw ConfigurationError.missingWorkOSEnvironment
         }
         app.logger.warning(
             """
-            WorkOS issuer/resource indicators are not set and auth is not explicitly \
-            disabled — treating authentication as disabled for this non-production run. \
-            Set both WorkOS values, or disable auth explicitly, to silence this warning.
+            No WorkOS configuration was provided (BearerAuthEnvironmentConfig.disabled) — \
+            treating authentication as disabled for this non-production run.
             """
         )
         return
-    }
-    
-    guard let issuerURL = URL(string: issuer), let issuerHost = issuerURL.host else {
-        throw ConfigurationError.invalidIssuer
-    }
-    let isLoopbackHTTPException = environment.allowHTTPLoopbackIssuer
-        && issuerURL.scheme == "http"
-        && (issuerHost == "127.0.0.1" || issuerHost == "localhost")
-    guard issuerURL.scheme == "https" || isLoopbackHTTPException else {
-        throw ConfigurationError.invalidIssuer
+
+    case .workOS(let workOSIssuer, let workOSResourceIndicatorsRaw):
+        guard let issuerURL = URL(string: workOSIssuer), issuerURL.scheme == "https", issuerURL.host != nil else {
+            throw ConfigurationError.invalidIssuer
+        }
+        issuer = workOSIssuer
+        resourceIndicatorsRaw = workOSResourceIndicatorsRaw
+
+    case .local(let port, let localResourceIndicatorsRaw):
+        guard app.environment != .production else {
+            throw ConfigurationError.localConfigInProduction
+        }
+        issuer = "http://127.0.0.1:\(port)"
+        resourceIndicatorsRaw = localResourceIndicatorsRaw
     }
 
     let parsedIndicators = resourceIndicatorsRaw.split(separator: ",")
@@ -131,7 +114,7 @@ public func configureBearerAuth(_ app: Application, environment: BearerAuthEnvir
     guard !parsedIndicators.isEmpty else {
         throw ConfigurationError.emptyResourceIndicators
     }
-    
+
     for resourceIndicator in parsedIndicators {
         guard let url = URL(string: resourceIndicator), url.scheme == "https", url.host != nil else {
             throw ConfigurationError.invalidResourceIndicator
@@ -217,31 +200,33 @@ private func oauthProtectedResourceDiscoveryURL(for resourceIndicator: String) -
 /// consuma la librería y quiera registrar o propagar el fallo trabaja con `any Error`, y
 /// no necesita distinguir el caso concreto.
 enum ConfigurationError: Error, CustomStringConvertible {
-    /// La autenticación estaba desactivada mientras se ejecutaba en el entorno `.production`.
-    case authDisabledInProduction
-    /// Se ejecuta en `.production` sin issuer/resource indicators de WorkOS y sin haber
-    /// desactivado la autenticación explícitamente.
+    /// Se ejecuta en `.production` con `BearerAuthEnvironmentConfig.disabled`.
     case missingWorkOSEnvironment
-    /// `workOSResourceIndicatorsRaw` estaba fijado pero ha quedado vacío tras dividirlo por comas.
+    /// Se ejecuta en `.production` con `BearerAuthEnvironmentConfig.local` — solo `.workOS`
+    /// está permitido ahí.
+    case localConfigInProduction
+    /// `resourceIndicatorsRaw` estaba fijado pero ha quedado vacío tras dividirlo por comas.
     case emptyResourceIndicators
-    /// El issuer de WorkOS proporcionado no es una URL absoluta válida.
+    /// El issuer de WorkOS proporcionado no es una URL absoluta `https://` con host.
     case invalidIssuer
-    /// Uno o más de los resource indicators proporcionados no son URLs absolutas válidas.
+    /// Uno o más de los resource indicators proporcionados no son URLs absolutas `https://`
+    /// con host.
     case invalidResourceIndicator
 
     var description: String {
         switch self {
-        case .authDisabledInProduction:
-            return "Disabling bearer auth is not allowed when the environment is production."
         case .missingWorkOSEnvironment:
-            return "Missing WorkOS configuration: set both the issuer and resource indicators, " +
-                "or disable auth explicitly outside production."
+            return "Missing WorkOS configuration: pass .workOS in production, " +
+                "or .disabled/.local outside production."
+        case .localConfigInProduction:
+            return "BearerAuthEnvironmentConfig.local is not allowed when the environment is " +
+                "production — use .workOS."
         case .emptyResourceIndicators:
-            return "workOSResourceIndicatorsRaw is set but contains no valid values."
+            return "resourceIndicatorsRaw is set but contains no valid values."
         case .invalidIssuer:
-            return "workOSIssuer must be a valid absolute HTTPS URL."
+            return "workOS issuer must be a valid absolute HTTPS URL."
         case .invalidResourceIndicator:
-            return "Each workOSResourceIndicator must be a valid absolute HTTPS URL."
+            return "Each resource indicator must be a valid absolute HTTPS URL."
         }
     }
 }

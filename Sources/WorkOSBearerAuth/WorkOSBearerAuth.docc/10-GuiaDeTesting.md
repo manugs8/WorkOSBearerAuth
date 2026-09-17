@@ -10,7 +10,7 @@ nunca necesites el más complicado de los dos.
 ## Tests normales de tu aplicación
 
 Cuando tu propia suite de tests corre con `swift test`, `app.environment` es `.testing`, y por
-el **Caso 1** de <doc:07-LasCuatroConfiguraciones>, `configureBearerAuth` se salta la
+el **Caso 1** de <doc:07-LasTresConfiguraciones>, `configureBearerAuth` se salta la
 autenticación por completo, sin importar qué contengan tus variables de entorno. Esto significa
 que, para la inmensa mayoría de tus tests, no tienes que hacer nada especial: tus rutas
 responden como si la autenticación no existiera.

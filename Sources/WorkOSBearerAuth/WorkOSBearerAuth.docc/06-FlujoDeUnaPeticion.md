@@ -75,4 +75,4 @@ el token ya se comprobó, y era correcto.
 
 Todo lo anterior describe **una** petición ya en marcha. Antes de eso, en el arranque de tu
 aplicación, `configureBearerAuth` tiene que decidir si toda esta maquinaria se activa siquiera —
-eso es <doc:07-LasCuatroConfiguraciones>.
+eso es <doc:07-LasTresConfiguraciones>.

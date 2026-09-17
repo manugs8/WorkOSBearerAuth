@@ -37,14 +37,20 @@ Una convención razonable, y la que usan los ejemplos de esta documentación:
 
 | Variable | Contenido |
 |---|---|
-| `AUTH_DISABLED` | `"true"` para desactivar la autenticación fuera de producción (opcional) |
 | `WORKOS_ISSUER` | La URL del issuer de tu proyecto de WorkOS |
 | `WORKOS_RESOURCE_INDICATORS` | Uno o varios resource indicators, separados por comas |
+| `AUTHMOCK_PORT` | El puerto de un `AuthMock` local (opcional — solo fuera de producción) |
+
+No hace falta ninguna variable para desactivar la autenticación explícitamente: si no fijas
+ninguna de las anteriores fuera de producción, tu `configure.swift` construye
+`BearerAuthEnvironmentConfig.disabled` y la autenticación queda desactivada (ver
+<doc:07-LasTresConfiguraciones>).
 
 ## 3. Llama a `configureBearerAuth`
 
 Dentro de tu `configure(_:)`, después de que `app.client` exista (lo necesita internamente
-`RemoteJWKS` para hablar con WorkOS):
+`RemoteJWKS` para hablar con WorkOS). `BearerAuthEnvironmentConfig` es un `enum` — tu propio
+`configure.swift` decide qué caso construir a partir de sus variables de entorno:
 
 ```swift
 import WorkOSBearerAuth
@@ -52,14 +58,15 @@ import WorkOSBearerAuth
 func configure(_ app: Application) throws {
     // ...
 
-    try configureBearerAuth(
-        app,
-        environment: BearerAuthEnvironmentConfig(
-            authDisabled: Environment.get("AUTH_DISABLED").flatMap(Bool.init) == true,
-            workOSIssuer: Environment.get("WORKOS_ISSUER"),
-            workOSResourceIndicatorsRaw: Environment.get("WORKOS_RESOURCE_INDICATORS")
-        )
-    )
+    let bearerAuthEnvironment: BearerAuthEnvironmentConfig
+    if let issuer = Environment.get("WORKOS_ISSUER"), let indicators = Environment.get("WORKOS_RESOURCE_INDICATORS") {
+        bearerAuthEnvironment = .workOS(issuer: issuer, resourceIndicatorsRaw: indicators)
+    } else if let port = Environment.get("AUTHMOCK_PORT").flatMap(Int.init), let indicators = Environment.get("WORKOS_RESOURCE_INDICATORS") {
+        bearerAuthEnvironment = .local(port: port, resourceIndicatorsRaw: indicators)
+    } else {
+        bearerAuthEnvironment = .disabled
+    }
+    try configureBearerAuth(app, environment: bearerAuthEnvironment)
 }
 ```
 
@@ -112,18 +119,24 @@ WWW-Authenticate: Bearer resource_metadata="https://tuapi.example.com/.well-know
 
 ## 7. Antes de desplegar a producción
 
-En producción no hay red de seguridad: si falta configuración de WorkOS y no has desactivado la
-autenticación explícitamente (lo cual, además, está prohibido en producción — ver
-<doc:07-LasCuatroConfiguraciones>), la aplicación **no arrancará**. Esto es intencionado: es
-preferible un despliegue que falla de inmediato a una API abierta por una variable de entorno
-olvidada.
+En producción no hay red de seguridad: no existe ninguna variable para desactivar la
+autenticación explícitamente, así que si falta configuración de WorkOS, la aplicación **no
+arrancará** (ver <doc:07-LasTresConfiguraciones>). Esto es intencionado: es preferible un
+despliegue que falla de inmediato a una API abierta por una variable de entorno olvidada.
 
 ## Errores comunes
 
 - **Usar `http://` en vez de `https://`** en el issuer o en un resource indicator — se rechaza
   explícitamente con `invalidIssuer`/`invalidResourceIndicator` (ver
-  <doc:08-ManejoDeErrores>). No hay excepción ni siquiera para desarrollo local: usa un túnel
-  HTTPS (como `ngrok`) si necesitas probar el flujo completo desde fuera de tu máquina.
+  <doc:08-ManejoDeErrores>). Los resource indicators no tienen excepción posible, en ningún
+  caso. El issuer sí tiene una, pero estrecha y estructural: usando
+  `BearerAuthEnvironmentConfig.local(port:resourceIndicatorsRaw:)` en vez de `.workOS`, el
+  issuer siempre es `http://127.0.0.1:<puerto>` — pensado para un `AuthMock`/servidor de
+  prueba real corriendo en la misma máquina (el tráfico loopback no sale de la máquina),
+  nunca para exponer tu propia API por HTTP. `configureBearerAuth` rechaza `.local` en
+  `.production` (`localConfigInProduction`), así que una variable de entorno mal puesta en
+  un despliegue real no rebaja esta protección en silencio. Para probar el flujo completo
+  desde fuera de tu máquina, sigue usando un túnel HTTPS (como `ngrok`).
 - **Dejar `WORKOS_RESOURCE_INDICATORS` vacío, o solo con comas/espacios** — produce
   `emptyResourceIndicators`. Comprueba el valor real de la variable de entorno en el entorno de
   destino.

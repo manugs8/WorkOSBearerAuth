@@ -21,7 +21,7 @@ struct ConfigureTests {
     @Test("Testing environment skips auth setup")
     func testingEnvironmentSkipsAuthSetup() async throws {
         try await Self.withApp(environment: .testing) { app in
-            let env = BearerAuthEnvironmentConfig(authDisabled: false, workOSIssuer: "https://example.workos.com", workOSResourceIndicatorsRaw: "https://api.example.com")
+            let env = BearerAuthEnvironmentConfig.workOS(issuer: "https://example.workos.com", resourceIndicatorsRaw: "https://api.example.com")
             try configureBearerAuth(app, environment: env)
 
             let routeMatch = app.routes.all.filter { $0.path.map(\.description) == [".well-known", "oauth-protected-resource"] }
@@ -29,75 +29,47 @@ struct ConfigureTests {
         }
     }
 
-    // 2. authDisabled but not testing, not production
-    @Test("Auth disabled outside production skips setup")
-    func authDisabledOutsideProductionSkipsSetup() async throws {
+    // 2. .disabled outside production skips setup
+    @Test(".disabled outside production skips setup")
+    func disabledOutsideProductionSkipsSetup() async throws {
         try await Self.withApp(environment: .development) { app in
-            let env = BearerAuthEnvironmentConfig(authDisabled: true, workOSIssuer: nil, workOSResourceIndicatorsRaw: nil)
-            try configureBearerAuth(app, environment: env)
+            try configureBearerAuth(app, environment: .disabled)
 
             let routeMatch = app.routes.all.filter { $0.path.map(\.description) == [".well-known", "oauth-protected-resource"] }
             #expect(routeMatch.isEmpty)
         }
     }
 
-    // 3. authDisabled in production throws
-    @Test("Auth disabled in production throws")
-    func authDisabledInProductionThrows() async throws {
+    // 3. .disabled in production throws
+    @Test(".disabled in production throws")
+    func disabledInProductionThrows() async throws {
         try await Self.withApp(environment: .production) { app in
-            let env = BearerAuthEnvironmentConfig(authDisabled: true, workOSIssuer: nil, workOSResourceIndicatorsRaw: nil)
-
-            #expect(throws: ConfigurationError.authDisabledInProduction) {
-                try configureBearerAuth(app, environment: env)
-            }
-        }
-    }
-
-    // 4. Missing workos env outside production skips setup
-    @Test("Missing WorkOS env outside production skips setup")
-    func missingWorkOSEnvOutsideProductionSkipsSetup() async throws {
-        try await Self.withApp(environment: .development) { app in
-            let env = BearerAuthEnvironmentConfig(authDisabled: false, workOSIssuer: nil, workOSResourceIndicatorsRaw: nil)
-            try configureBearerAuth(app, environment: env)
-
-            let routeMatch = app.routes.all.filter { $0.path.map(\.description) == [".well-known", "oauth-protected-resource"] }
-            #expect(routeMatch.isEmpty)
-        }
-    }
-
-    // 5. Missing workos env in production throws
-    @Test("Missing WorkOS env in production throws")
-    func missingWorkOSEnvInProductionThrows() async throws {
-        try await Self.withApp(environment: .production) { app in
-            let env = BearerAuthEnvironmentConfig(authDisabled: false, workOSIssuer: nil, workOSResourceIndicatorsRaw: nil)
-
             #expect(throws: ConfigurationError.missingWorkOSEnvironment) {
-                try configureBearerAuth(app, environment: env)
+                try configureBearerAuth(app, environment: .disabled)
             }
         }
     }
 
-    // 6. Valid env sets up route and middleware
-    @Test("Valid environment sets up auth and route")
-    func validEnvironmentSetsUpAuthAndRoute() async throws {
+    // 4. Valid .workOS sets up route and middleware
+    @Test(".workOS sets up auth and route")
+    func workOSSetsUpAuthAndRoute() async throws {
         try await Self.withApp(environment: .production) { app in
-            let env = BearerAuthEnvironmentConfig(
-                authDisabled: false, 
-                workOSIssuer: "https://example.workos.com", 
-                workOSResourceIndicatorsRaw: "https://api.example.com"
+            let env = BearerAuthEnvironmentConfig.workOS(
+                issuer: "https://example.workos.com",
+                resourceIndicatorsRaw: "https://api.example.com"
             )
             try configureBearerAuth(app, environment: env)
 
             let route = try #require(app.routes.all.first { $0.path.map(\.description) == [".well-known", "oauth-protected-resource"] })
             #expect(route.path.count == 2)
-            
+
             try await app.testing().test(.GET, ".well-known/oauth-protected-resource") { res async throws in
                 #expect(res.status == .ok)
                 struct OAuthProtectedResourceMetadata: Codable {
                     let resource: String
                     let authorizationServers: [String]
                     let bearerMethodsSupported: [String]
-                    
+
                     enum CodingKeys: String, CodingKey {
                         case resource
                         case authorizationServers = "authorization_servers"
@@ -112,14 +84,13 @@ struct ConfigureTests {
         }
     }
 
-    // 7. empty resource indicators throws
+    // 5. empty resource indicators throws
     @Test("Empty resource indicators throws")
     func emptyResourceIndicatorsThrows() async throws {
         try await Self.withApp(environment: .production) { app in
-            let env = BearerAuthEnvironmentConfig(
-                authDisabled: false, 
-                workOSIssuer: "https://example.workos.com", 
-                workOSResourceIndicatorsRaw: ""
+            let env = BearerAuthEnvironmentConfig.workOS(
+                issuer: "https://example.workos.com",
+                resourceIndicatorsRaw: ""
             )
 
             #expect(throws: ConfigurationError.emptyResourceIndicators) {
@@ -128,14 +99,13 @@ struct ConfigureTests {
         }
     }
 
-    // 8. blank resource indicators throws
+    // 6. blank resource indicators throws
     @Test("Blank resource indicators throws")
     func blankResourceIndicatorsThrows() async throws {
         try await Self.withApp(environment: .production) { app in
-            let env = BearerAuthEnvironmentConfig(
-                authDisabled: false, 
-                workOSIssuer: "https://example.workos.com", 
-                workOSResourceIndicatorsRaw: "   "
+            let env = BearerAuthEnvironmentConfig.workOS(
+                issuer: "https://example.workos.com",
+                resourceIndicatorsRaw: "   "
             )
 
             #expect(throws: ConfigurationError.emptyResourceIndicators) {
@@ -144,14 +114,13 @@ struct ConfigureTests {
         }
     }
 
-    // 9. invalid issuer URL throws
+    // 7. invalid issuer URL throws
     @Test("Invalid issuer URL throws")
     func invalidIssuerThrows() async throws {
         try await Self.withApp(environment: .production) { app in
-            let env = BearerAuthEnvironmentConfig(
-                authDisabled: false, 
-                workOSIssuer: "not-a-valid-url", 
-                workOSResourceIndicatorsRaw: "https://api.example.com"
+            let env = BearerAuthEnvironmentConfig.workOS(
+                issuer: "not-a-valid-url",
+                resourceIndicatorsRaw: "https://api.example.com"
             )
 
             #expect(throws: ConfigurationError.invalidIssuer) {
@@ -160,14 +129,13 @@ struct ConfigureTests {
         }
     }
 
-    // 10. invalid resource indicator URL throws
+    // 8. invalid resource indicator URL throws
     @Test("Invalid resource indicator URL throws")
     func invalidResourceIndicatorThrows() async throws {
         try await Self.withApp(environment: .production) { app in
-            let env = BearerAuthEnvironmentConfig(
-                authDisabled: false, 
-                workOSIssuer: "https://example.workos.com", 
-                workOSResourceIndicatorsRaw: "not-a-valid-url"
+            let env = BearerAuthEnvironmentConfig.workOS(
+                issuer: "https://example.workos.com",
+                resourceIndicatorsRaw: "not-a-valid-url"
             )
 
             #expect(throws: ConfigurationError.invalidResourceIndicator) {
@@ -176,14 +144,13 @@ struct ConfigureTests {
         }
     }
 
-    // 11. http issuer URL throws
-    @Test("HTTP issuer URL throws")
+    // 9. http issuer URL throws — .workOS always requires https, no exceptions
+    @Test("HTTP issuer URL throws under .workOS")
     func httpIssuerThrows() async throws {
         try await Self.withApp(environment: .production) { app in
-            let env = BearerAuthEnvironmentConfig(
-                authDisabled: false, 
-                workOSIssuer: "http://example.workos.com", 
-                workOSResourceIndicatorsRaw: "https://api.example.com"
+            let env = BearerAuthEnvironmentConfig.workOS(
+                issuer: "http://example.workos.com",
+                resourceIndicatorsRaw: "https://api.example.com"
             )
 
             #expect(throws: ConfigurationError.invalidIssuer) {
@@ -192,14 +159,13 @@ struct ConfigureTests {
         }
     }
 
-    // 12. http resource indicator URL throws
+    // 10. http resource indicator URL throws — never relaxed, not even under .local
     @Test("HTTP resource indicator URL throws")
     func httpResourceIndicatorThrows() async throws {
         try await Self.withApp(environment: .production) { app in
-            let env = BearerAuthEnvironmentConfig(
-                authDisabled: false, 
-                workOSIssuer: "https://example.workos.com", 
-                workOSResourceIndicatorsRaw: "http://api.example.com"
+            let env = BearerAuthEnvironmentConfig.workOS(
+                issuer: "https://example.workos.com",
+                resourceIndicatorsRaw: "http://api.example.com"
             )
 
             #expect(throws: ConfigurationError.invalidResourceIndicator) {
@@ -207,82 +173,59 @@ struct ConfigureTests {
             }
         }
     }
-    // 14. loopback http issuer with the exception enabled succeeds
-    @Test("HTTP loopback issuer succeeds when allowHTTPLoopbackIssuer is true")
-    func httpLoopbackIssuerSucceedsWhenExceptionEnabled() async throws {
+
+    // 11. .local builds the loopback issuer itself and sets up route and middleware
+    @Test(".local sets up auth and route against http://127.0.0.1:<port>")
+    func localSetsUpAuthAndRoute() async throws {
         try await Self.withApp(environment: .development) { app in
-            let env = BearerAuthEnvironmentConfig(
-                authDisabled: false,
-                workOSIssuer: "http://127.0.0.1:8090",
-                workOSResourceIndicatorsRaw: "https://api.example.com",
-                allowHTTPLoopbackIssuer: true
-            )
+            let env = BearerAuthEnvironmentConfig.local(port: 8090, resourceIndicatorsRaw: "https://api.example.com")
             try configureBearerAuth(app, environment: env)
 
-            let route = try #require(app.routes.all.first { $0.path.map(\.description) == [".well-known", "oauth-protected-resource"] })
-            #expect(route.path.count == 2)
-        }
-    }
-
-    // 15. loopback http issuer still throws when the exception is not enabled (the default)
-    @Test("HTTP loopback issuer still throws when allowHTTPLoopbackIssuer is false")
-    func httpLoopbackIssuerThrowsWhenExceptionDisabled() async throws {
-        try await Self.withApp(environment: .development) { app in
-            let env = BearerAuthEnvironmentConfig(
-                authDisabled: false,
-                workOSIssuer: "http://127.0.0.1:8090",
-                workOSResourceIndicatorsRaw: "https://api.example.com"
-            )
-
-            #expect(throws: ConfigurationError.invalidIssuer) {
-                try configureBearerAuth(app, environment: env)
+            try await app.testing().test(.GET, ".well-known/oauth-protected-resource") { res async throws in
+                #expect(res.status == .ok)
+                struct OAuthProtectedResourceMetadata: Codable {
+                    let authorizationServers: [String]
+                    enum CodingKeys: String, CodingKey {
+                        case authorizationServers = "authorization_servers"
+                    }
+                }
+                let metadata = try res.content.decode(OAuthProtectedResourceMetadata.self)
+                #expect(metadata.authorizationServers == ["http://127.0.0.1:8090"])
             }
         }
     }
 
-    // 16. the exception never widens beyond loopback hosts, even when enabled
-    @Test("HTTP non-loopback issuer still throws even when allowHTTPLoopbackIssuer is true")
-    func httpNonLoopbackIssuerThrowsEvenWhenExceptionEnabled() async throws {
-        try await Self.withApp(environment: .development) { app in
-            let env = BearerAuthEnvironmentConfig(
-                authDisabled: false,
-                workOSIssuer: "http://example.workos.com",
-                workOSResourceIndicatorsRaw: "https://api.example.com",
-                allowHTTPLoopbackIssuer: true
-            )
-
-            #expect(throws: ConfigurationError.invalidIssuer) {
-                try configureBearerAuth(app, environment: env)
-            }
-        }
-    }
-
-    // 17. the exception is gated purely by the flag, not by `Environment` — production
-    // safety comes from render.yaml never setting it, not from an environment check.
-    @Test("HTTP loopback issuer succeeds even in .production when the flag is explicitly set")
-    func httpLoopbackIssuerSucceedsInProductionWhenFlagExplicitlySet() async throws {
+    // 12. .local is rejected in production — only .workOS is allowed there
+    @Test(".local in production throws")
+    func localInProductionThrows() async throws {
         try await Self.withApp(environment: .production) { app in
-            let env = BearerAuthEnvironmentConfig(
-                authDisabled: false,
-                workOSIssuer: "http://localhost:8090",
-                workOSResourceIndicatorsRaw: "https://api.example.com",
-                allowHTTPLoopbackIssuer: true
-            )
-            try configureBearerAuth(app, environment: env)
+            let env = BearerAuthEnvironmentConfig.local(port: 8090, resourceIndicatorsRaw: "https://api.example.com")
 
-            let route = try #require(app.routes.all.first { $0.path.map(\.description) == [".well-known", "oauth-protected-resource"] })
-            #expect(route.path.count == 2)
+            #expect(throws: ConfigurationError.localConfigInProduction) {
+                try configureBearerAuth(app, environment: env)
+            }
         }
     }
 
-    // 13. Discovery endpoint with path works according to RFC 9728
+    // 13. resource indicator validation is shared — exercised here under .local too
+    @Test("Invalid resource indicator URL throws under .local")
+    func localInvalidResourceIndicatorThrows() async throws {
+        try await Self.withApp(environment: .development) { app in
+            let env = BearerAuthEnvironmentConfig.local(port: 8090, resourceIndicatorsRaw: "http://api.example.com")
+
+            #expect(throws: ConfigurationError.invalidResourceIndicator) {
+                try configureBearerAuth(app, environment: env)
+            }
+        }
+    }
+
+    // 14. Discovery endpoint with path works according to RFC 9728
     @Test("Discovery endpoint inserts path per RFC 9728")
     func discoveryEndpointWithPath() async throws {
         try await Self.withApp(environment: .production) { app in
-            let env = BearerAuthEnvironmentConfig(
-                authDisabled: false,
-                workOSIssuer: "https://example.workos.com",
-                workOSResourceIndicatorsRaw: "https://api.example.com/mcp"
+            let env = BearerAuthEnvironmentConfig.workOS(
+                issuer: "https://example.workos.com",
+                resourceIndicatorsRaw: "https://api.example.com/mcp"
             )
             try configureBearerAuth(app, environment: env)
 

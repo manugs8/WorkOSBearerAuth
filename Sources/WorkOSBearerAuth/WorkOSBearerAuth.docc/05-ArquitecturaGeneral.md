@@ -21,7 +21,7 @@ implica solo por eso.
 ## Las piezas, una por una
 
 - **``configureBearerAuth(_:environment:)``** — el único punto de entrada público. Decide, según
-  el entorno de Vapor y la configuración recibida, cuál de las <doc:07-LasCuatroConfiguraciones>
+  el entorno de Vapor y la configuración recibida, cuál de las <doc:07-LasTresConfiguraciones>
   aplica, y si corresponde, monta todo lo demás.
 - **`BearerAuthMiddleware`** *(interno)* — el middleware real, atado una única vez a la
   `Application` completa. Por cada petición: decide si la ruta está exenta, extrae el token,
@@ -79,7 +79,7 @@ cuántas veces cambie de `Task` por el camino.
 transporta los valores que le pasa la aplicación consumidora. Esto tiene dos consecuencias
 deliberadas: primero, esta librería nunca queda atada a un nombre concreto de variable de
 entorno (tu aplicación puede llamarlas como quiera, o incluso leerlas de un gestor de secretos
-en vez de variables de entorno); segundo, la lógica de las <doc:07-LasCuatroConfiguraciones> se
+en vez de variables de entorno); segundo, la lógica de las <doc:07-LasTresConfiguraciones> se
 puede comprobar en tests construyendo valores directamente, sin mutar variables de entorno reales
 del proceso caso por caso.
 

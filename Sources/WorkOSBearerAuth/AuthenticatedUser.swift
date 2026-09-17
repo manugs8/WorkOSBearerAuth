@@ -7,8 +7,9 @@ extension Request {
 
     /// Las claims validadas del token Bearer que autenticó esta petición — las fija
     /// `BearerAuthMiddleware` justo después de un `BearerTokenVerifier.verify(_:using:)`
-    /// correcto. Es `nil` cuando la autenticación está desactivada (`AUTH_DISABLED=true`)
-    /// o la petición ha llegado por una ruta exenta.
+    /// correcto. Es `nil` cuando la autenticación está desactivada
+    /// (`BearerAuthEnvironmentConfig.disabled` fuera de producción) o la petición ha
+    /// llegado por una ruta exenta.
     ///
     /// `Request.storage`, no un task-local: un task-local fijado en el middleware no llega
     /// de forma fiable al código que se invoca más adelante en la cadena de una app Vapor.

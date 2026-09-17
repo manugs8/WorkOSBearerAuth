@@ -37,13 +37,13 @@ tratarlo como `any Error` — no hace falta distinguir el caso concreto para eso
 
 | Caso | Cuándo ocurre | Qué hacer |
 |---|---|---|
-| `authDisabledInProduction` | `authDisabled == true` y `app.environment == .production` | Nunca desactives la autenticación en producción — revisa la configuración del entorno. |
-| `missingWorkOSEnvironment` | Falta `workOSIssuer` o `workOSResourceIndicatorsRaw` en producción, sin `authDisabled` | Define ambos valores para el entorno de producción. |
-| `emptyResourceIndicators` | `workOSResourceIndicatorsRaw` está definido pero queda vacío tras dividir por comas | Comprueba que la variable no esté vacía ni compuesta solo de comas o espacios. |
-| `invalidIssuer` | `workOSIssuer` no es una URL absoluta `https://` con host | Usa la URL completa de tu proyecto de WorkOS AuthKit, con `https://`. |
+| `missingWorkOSEnvironment` | `environment == .disabled` en producción | Pasa `.workOS` con issuer y resource indicators reales para el entorno de producción. |
+| `localConfigInProduction` | `environment == .local(...)` en producción | Solo `.workOS` está permitido en producción — usa un issuer real de WorkOS ahí. |
+| `emptyResourceIndicators` | `resourceIndicatorsRaw` está definido pero queda vacío tras dividir por comas | Comprueba que la variable no esté vacía ni compuesta solo de comas o espacios. |
+| `invalidIssuer` | Bajo `.workOS`, el issuer no es una URL absoluta `https://` con host | Usa la URL completa de tu proyecto de WorkOS AuthKit, con `https://`. |
 | `invalidResourceIndicator` | Algún resource indicator no es una URL absoluta `https://` con host | Revisa cada valor de la lista separada por comas. |
 
-Ver <doc:07-LasCuatroConfiguraciones> para el razonamiento completo detrás de cuáles de estos
+Ver <doc:07-LasTresConfiguraciones> para el razonamiento completo detrás de cuáles de estos
 casos aplican solo en producción.
 
 ## Errores de petición — `BearerTokenError`
@@ -81,7 +81,7 @@ Una decisión operativa deliberada: no todos los rechazos merecen la misma atenc
   rutas al azar; un goteo de 401 es ruido esperable, no una emergencia.
 - **`.error`** — un fallo al obtener el JWKS (503). Esto sí es una señal real de que algo va mal
   con la conectividad hacia WorkOS, y merece la atención de quien opera el servicio.
-- **`.warning`** — autenticación desactivada (casos 2–3 de <doc:07-LasCuatroConfiguraciones>).
+- **`.warning`** — autenticación desactivada (caso 2 de <doc:07-LasTresConfiguraciones>).
   Nunca silencioso, para que no se descubra por sorpresa.
 - **`.info`** — autenticación activada correctamente al arrancar, con el issuer y los recursos
   configurados.

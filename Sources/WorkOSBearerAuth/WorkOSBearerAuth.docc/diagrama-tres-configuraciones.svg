@@ -1,0 +1,108 @@
+<svg viewBox="0 0 1000 950" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Las tres configuraciones posibles de configureBearerAuth">
+  <defs>
+    <marker id="arrowC" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#4a5568"/>
+    </marker>
+  </defs>
+  <style>
+    .bg { fill: #f8f9fb; }
+    .box { fill: #ffffff; stroke: #4a5568; stroke-width: 1.5; }
+    .decision { fill: #eef2ff; stroke: #4338ca; stroke-width: 1.5; }
+    .neutral { fill: #f1f3f5; stroke: #495057; stroke-width: 1.5; }
+    .ok { fill: #e6f4ea; stroke: #1e7e34; stroke-width: 1.5; }
+    .warn { fill: #fff4e5; stroke: #b45309; stroke-width: 1.5; }
+    .err { fill: #fdecea; stroke: #b91c1c; stroke-width: 1.5; }
+    .title { font: 600 20px -apple-system, Helvetica, Arial, sans-serif; fill: #1a202c; }
+    .subtitle { font: 400 13.5px -apple-system, Helvetica, Arial, sans-serif; fill: #57606a; }
+    .body { font: 400 13px -apple-system, Helvetica, Arial, sans-serif; fill: #1a202c; }
+    .caseLbl { font: 700 12.5px -apple-system, Helvetica, Arial, sans-serif; }
+    .lbl { font: 700 12px -apple-system, Helvetica, Arial, sans-serif; fill: #4338ca; }
+    .edge { fill: none; stroke: #4a5568; stroke-width: 1.6; marker-end: url(#arrowC); }
+  </style>
+  <rect class="bg" x="0" y="0" width="1000" height="950" rx="12"/>
+  <text x="30" y="34" class="title">Las tres configuraciones de arranque</text>
+  <text x="30" y="54" class="subtitle">Cómo decide configureBearerAuth qué hacer, según el entorno de Vapor y el caso de BearerAuthEnvironmentConfig recibido</text>
+
+  <!-- Start -->
+  <rect class="box" x="90" y="85" width="340" height="46" rx="8"/>
+  <text x="260" y="113" text-anchor="middle" class="body">Se llama a configureBearerAuth(app, environment:)</text>
+  <line x1="260" y1="131" x2="260" y2="155" class="edge"/>
+
+  <!-- D1 -->
+  <rect class="decision" x="90" y="155" width="340" height="60" rx="8"/>
+  <text x="260" y="180" text-anchor="middle" class="body">¿app.environment</text>
+  <text x="260" y="198" text-anchor="middle" class="body">== .testing?</text>
+  <text x="446" y="181" class="lbl">SÍ</text>
+  <path d="M430,185 H560" class="edge"/>
+  <rect class="neutral" x="560" y="160" width="410" height="50" rx="8"/>
+  <text x="765" y="180" text-anchor="middle" class="body caseLbl">CASO 1</text>
+  <text x="765" y="198" text-anchor="middle" class="body">Se omite por completo, pase lo que pase en `environment`</text>
+
+  <text x="278" y="233" class="lbl">NO</text>
+  <line x1="260" y1="215" x2="260" y2="245" class="edge"/>
+
+  <!-- D2: .disabled? -->
+  <rect class="decision" x="90" y="245" width="340" height="60" rx="8"/>
+  <text x="260" y="270" text-anchor="middle" class="body">¿environment</text>
+  <text x="260" y="288" text-anchor="middle" class="body">== .disabled?</text>
+  <text x="446" y="271" class="lbl">SÍ</text>
+  <path d="M430,275 H560" class="edge"/>
+  <rect class="decision" x="560" y="248" width="410" height="54" rx="8"/>
+  <text x="765" y="270" text-anchor="middle" class="body">¿app.environment</text>
+  <text x="765" y="288" text-anchor="middle" class="body">== .production?</text>
+
+  <text x="846" y="335" class="lbl">SÍ</text>
+  <path d="M840,302 V372" class="edge"/>
+  <rect class="err" x="770" y="372" width="200" height="60" rx="8"/>
+  <text x="870" y="392" text-anchor="middle" class="body" font-size="11.5" font-weight="700">Lanza missing-</text>
+  <text x="870" y="410" text-anchor="middle" class="body" font-size="11.5" font-weight="700">WorkOSEnvironment.</text>
+  <text x="870" y="424" text-anchor="middle" class="body" font-size="11.5">No arranca.</text>
+
+  <text x="584" y="335" class="lbl">NO</text>
+  <path d="M620,302 V372" class="edge"/>
+  <rect class="warn" x="560" y="372" width="180" height="76" rx="8"/>
+  <text x="650" y="394" text-anchor="middle" class="body caseLbl">CASO 2</text>
+  <text x="650" y="412" text-anchor="middle" class="body" font-size="11.5">Auth desactivada,</text>
+  <text x="650" y="426" text-anchor="middle" class="body" font-size="11.5">con aviso registrado</text>
+  <text x="650" y="440" text-anchor="middle" class="body" font-size="11.5">(logger.warning)</text>
+
+  <text x="278" y="323" class="lbl">NO</text>
+  <line x1="260" y1="305" x2="260" y2="335" class="edge"/>
+
+  <!-- D3: .local? -->
+  <rect class="decision" x="90" y="335" width="340" height="60" rx="8"/>
+  <text x="260" y="360" text-anchor="middle" class="body">¿environment</text>
+  <text x="260" y="378" text-anchor="middle" class="body">== .local(port:...)?</text>
+
+  <text x="446" y="361" class="lbl">SÍ</text>
+  <path d="M430,365 H495 V549 H560" class="edge"/>
+  <rect class="decision" x="560" y="522" width="410" height="54" rx="8"/>
+  <text x="765" y="544" text-anchor="middle" class="body">¿app.environment</text>
+  <text x="765" y="562" text-anchor="middle" class="body">== .production?</text>
+
+  <text x="846" y="609" class="lbl">SÍ</text>
+  <path d="M840,576 V646" class="edge"/>
+  <rect class="err" x="770" y="646" width="200" height="60" rx="8"/>
+  <text x="870" y="666" text-anchor="middle" class="body" font-size="11.5" font-weight="700">Lanza local-</text>
+  <text x="870" y="684" text-anchor="middle" class="body" font-size="11.5" font-weight="700">ConfigInProduction.</text>
+  <text x="870" y="698" text-anchor="middle" class="body" font-size="11.5">No arranca.</text>
+
+  <text x="584" y="609" class="lbl">NO</text>
+  <path d="M620,576 V646" class="edge"/>
+  <rect class="ok" x="560" y="646" width="200" height="90" rx="8"/>
+  <text x="660" y="668" text-anchor="middle" class="body caseLbl">CASO 3 (.local)</text>
+  <text x="660" y="686" text-anchor="middle" class="body" font-size="11.5">Verifica contra</text>
+  <text x="660" y="700" text-anchor="middle" class="body" font-size="11.5">http://127.0.0.1:&lt;puerto&gt;</text>
+  <text x="660" y="714" text-anchor="middle" class="body" font-size="11.5">construido por la librería</text>
+
+  <text x="278" y="480" class="lbl">NO</text>
+  <text x="284" y="497" class="body" font-size="11">(.workOS)</text>
+  <path d="M260,395 V800" class="edge"/>
+
+  <!-- Final: .workOS -->
+  <rect class="ok" x="90" y="800" width="340" height="90" rx="8"/>
+  <text x="260" y="824" text-anchor="middle" class="body caseLbl">CASO 3 (.workOS)</text>
+  <text x="260" y="842" text-anchor="middle" class="body">Valida que el issuer sea https://, valida</text>
+  <text x="260" y="860" text-anchor="middle" class="body">los resource indicators, y activa JWT/JWKS</text>
+  <text x="260" y="878" text-anchor="middle" class="body">real — también en producción</text>
+</svg>

@@ -12,7 +12,7 @@ interface (e.g. an MCP server mounted on the same `Application`) behind the same
   - [1. Configure bearer auth](#1-configure-bearer-auth)
   - [2. Read the authenticated identity](#2-read-the-authenticated-identity)
 - [Behavior](#behavior)
-  - [The four configuration cases](#the-four-configuration-cases)
+  - [The three configuration cases](#the-three-configuration-cases)
   - [Exempt paths](#exempt-paths)
   - [Discovery route (RFC 9728)](#discovery-route-rfc-9728)
   - [401 vs. 503](#401-vs-503)
@@ -51,20 +51,40 @@ import WorkOSBearerAuth
 func configure(_ app: Application) throws {
     // ...
 
-    try configureBearerAuth(
-        app,
-        environment: BearerAuthEnvironmentConfig(
-            authDisabled: Environment.get("AUTH_DISABLED").flatMap(Bool.init) == true,
-            workOSIssuer: Environment.get("WORKOS_ISSUER"),
-            workOSResourceIndicatorsRaw: Environment.get("WORKOS_RESOURCE_INDICATORS")
-        )
-    )
+    let bearerAuthEnvironment: BearerAuthEnvironmentConfig
+    if let issuer = Environment.get("WORKOS_ISSUER"), let indicators = Environment.get("WORKOS_RESOURCE_INDICATORS") {
+        bearerAuthEnvironment = .workOS(issuer: issuer, resourceIndicatorsRaw: indicators)
+    } else if let port = Environment.get("AUTHMOCK_PORT").flatMap(Int.init), let indicators = Environment.get("WORKOS_RESOURCE_INDICATORS") {
+        bearerAuthEnvironment = .local(port: port, resourceIndicatorsRaw: indicators)
+    } else {
+        bearerAuthEnvironment = .disabled
+    }
+    try configureBearerAuth(app, environment: bearerAuthEnvironment)
 }
 ```
 
-`workOSResourceIndicatorsRaw` is WorkOS's own comma-separated format for
-`WORKOS_RESOURCE_INDICATORS` (e.g. `"https://api.example.com/mcp,http://localhost:8080/mcp"`)
-— splitting, trimming, and validating it is this library's job, not the caller's.
+`resourceIndicatorsRaw` is WorkOS's own comma-separated format for
+`WORKOS_RESOURCE_INDICATORS` (e.g. `"https://api.example.com/mcp,https://api.example.com/rest"`)
+— splitting, trimming, and validating it is this library's job, not the caller's, for both
+cases below.
+
+`BearerAuthEnvironmentConfig` is an `enum`, not a struct with optional fields, so an
+impossible combination (a real WorkOS issuer that's also somehow "loopback", or a loopback
+config with no way to tell it's one) can't even be constructed:
+
+- **`.workOS(issuer:resourceIndicatorsRaw:)`** — a real WorkOS AuthKit issuer. Must be
+  `https://`, no exceptions. The only case `configureBearerAuth` accepts in `.production`.
+- **`.local(port:resourceIndicatorsRaw:)`** — a real auth-server mock (e.g. `AuthMock`)
+  running on the same machine, so token verification still runs for real instead of
+  disabling auth outright. Only takes a port, not an issuer string: the host is always
+  `http://127.0.0.1`, never a caller-supplied value, so there's nothing to parse or
+  validate to confirm it's actually loopback. Rejected in `.production`
+  (`localConfigInProduction`) — that restriction lives in the library itself, not just in
+  which environment variables happen to be set in a deployment config.
+- **`.disabled`** — no WorkOS configuration. Fine outside production (a warning is logged);
+  refused in `.production` (`missingWorkOSEnvironment`).
+
+Resource indicators are unaffected by which case you use — always required to be `https://`.
 
 ### 2. Read the authenticated identity
 
@@ -80,7 +100,7 @@ app.get("whoami") { req in
 
 ## Behavior
 
-### The four configuration cases
+### The three configuration cases
 
 `configureBearerAuth` branches on `app.environment` and `environment`:
 
@@ -89,13 +109,13 @@ app.get("whoami") { req in
    `BearerAuthMiddleware`-backed setup manually if it needs to (this library's own test
    suite does exactly that against a throwaway `Application` — see
    `BearerAuthMiddlewareTests`).
-2. **`environment.authDisabled` in `.production`** — throws. A test-only escape hatch must
-   never silently reach a real deployment.
-3. **`environment.authDisabled` outside production, or neither `authDisabled` nor
-   `workOSIssuer`/`workOSResourceIndicatorsRaw` set** — authentication is disabled, with a
+2. **`.disabled`** — in `.production`, throws (there's no escape hatch to silently disable
+   auth on a real deployment); outside production, authentication is disabled, with a
    logged warning so it's never silent.
-4. **`workOSIssuer`/`workOSResourceIndicatorsRaw` set** — real JWT/JWKS validation is
-   enforced, including in production, where it's required (missing config throws).
+3. **`.workOS`/`.local`** — real JWT/JWKS validation is enforced. `.workOS` works in any
+   environment, including production, where it's required (`.disabled` throws, per case 2).
+   `.local` works in any environment *except* production, which it refuses outright
+   (`localConfigInProduction`) — only `.workOS` is allowed there.
 
 ### Exempt paths
 
@@ -169,12 +189,14 @@ parameter rather than reading the environment itself — your own E2E setup deci
   not preserve task-local values — verified empirically. `Request` is a reference type
   threaded through that whole chain regardless of which `Task` ends up running which part of
   it, so `request.storage` is not affected by that problem.
-- **Configuration is a struct, not `Environment.get(...)` calls inside this library.**
+- **Configuration is an `enum`, not `Environment.get(...)` calls inside this library.**
   Keeping the actual environment-variable reads in the consumer's own `configure.swift`
   means this library is never hardcoded to a specific set of variable *names*, and its own
-  configuration branching (the four cases above) can be tested by constructing different
+  configuration branching (the cases above) can be tested by constructing different
   `BearerAuthEnvironmentConfig` values directly, without mutating real process environment
-  variables per test case.
+  variables per test case. An `enum` over a struct with optional fields, specifically, so
+  each case only carries the data that configuration actually needs — no field that's
+  meaningful for `.workOS` but meaningless for `.local`, or vice versa.
 - **Minimal public surface.** In `WorkOSBearerAuth`, only `configureBearerAuth`,
   `BearerAuthEnvironmentConfig`, and `WorkOSClaims` (as the type of
   `Request.authenticatedClaims`) are public. Everything else this library uses internally

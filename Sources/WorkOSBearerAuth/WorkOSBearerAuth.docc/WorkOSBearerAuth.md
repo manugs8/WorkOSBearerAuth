@@ -44,7 +44,7 @@ construida así.
 
 - <doc:05-ArquitecturaGeneral>
 - <doc:06-FlujoDeUnaPeticion>
-- <doc:07-LasCuatroConfiguraciones>
+- <doc:07-LasTresConfiguraciones>
 - <doc:08-ManejoDeErrores>
 
 ### Guías prácticas

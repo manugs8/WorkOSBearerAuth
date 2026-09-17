@@ -64,6 +64,13 @@ día alguien lo hiciera sin querer.
 
 ### ¿Necesito HTTPS en local para probar el flujo completo?
 
-El issuer y los resource indicators deben ser URLs `https://` sin excepción, también en
-desarrollo — ver <doc:09-GuiaDeImplantacion>. Si necesitas probar contra un servidor local
-expuesto a Internet, una herramienta como `ngrok` te da una URL HTTPS que reenvía a tu máquina.
+Los resource indicators sí, siempre — no tienen excepción, en ningún caso. El issuer también,
+salvo una excepción estrecha y estructural: usando
+`BearerAuthEnvironmentConfig.local(port:resourceIndicatorsRaw:)` en vez de `.workOS`, el issuer
+siempre es `http://127.0.0.1:<puerto>` — no hay ningún flag que activar ni ninguna URL que
+pasar, el propio caso ya lo garantiza. Está pensado para que un `AuthMock`/servidor de prueba
+real, corriendo en la misma máquina, actúe como issuer en tests/CI efímeros — no para desarrollo
+general ni para exponer tu API por HTTP —, y `configureBearerAuth` rechaza `.local` en
+`.production` (`localConfigInProduction`) pase lo que pase en tu configuración. Ver
+<doc:09-GuiaDeImplantacion>. Si necesitas probar contra un servidor local expuesto a Internet,
+una herramienta como `ngrok` te da una URL HTTPS que reenvía a tu máquina.
