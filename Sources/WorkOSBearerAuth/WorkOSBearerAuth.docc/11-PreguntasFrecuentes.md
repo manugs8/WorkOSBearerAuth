@@ -28,9 +28,11 @@ ampliando sin querer qué queda público. Ver <doc:04-OAuthYDescubrimientoRFC972
 
 ### ¿Cómo pruebo mi aplicación sin credenciales reales de WorkOS?
 
-En tests normales (`swift test`), no necesitas hacer nada: el entorno `.testing` desactiva la
-autenticación automáticamente. Para una suite E2E contra un servidor real, usa
-`WorkOSBearerAuthTesting`. Ver <doc:10-GuiaDeTesting>.
+En tests normales (`swift test`) con `.disabled`/`.workOS`, no necesitas hacer nada: el entorno
+`.testing` desactiva la autenticación automáticamente. Si quieres ejercer autenticación real sin
+salir del mismo proceso, usa `.local` con un `AuthMock` efímero — es el único caso que
+`configureBearerAuth` registra de verdad incluso bajo `.testing`. Para una suite E2E contra un
+servidor real ya arrancado, usa `WorkOSBearerAuthTesting`. Ver <doc:10-GuiaDeTesting>.
 
 ### ¿Puedo dejar pública una ruta adicional, además de las cuatro ya exentas?
 

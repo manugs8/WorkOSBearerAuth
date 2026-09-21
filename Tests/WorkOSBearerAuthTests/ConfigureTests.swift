@@ -237,4 +237,53 @@ struct ConfigureTests {
             }
         }
     }
+
+    // 15. .disabled still skips under .testing — the short-circuit narrowed to .disabled/.workOS still covers this case
+    @Test(".disabled skips setup under .testing")
+    func disabledSkipsSetupUnderTesting() async throws {
+        try await Self.withApp(environment: .testing) { app in
+            try configureBearerAuth(app, environment: .disabled)
+
+            let routeMatch = app.routes.all.filter { $0.path.map(\.description) == [".well-known", "oauth-protected-resource"] }
+            #expect(routeMatch.isEmpty)
+        }
+    }
+
+    // 16. .local registers the route even under .testing — it only ever talks to a loopback mock, so the
+    // real-network rationale behind the .testing short-circuit doesn't apply to it.
+    @Test(".local sets up auth and route under .testing")
+    func localSetsUpAuthAndRouteUnderTesting() async throws {
+        try await Self.withApp(environment: .testing) { app in
+            let env = BearerAuthEnvironmentConfig.local(port: 8090, resourceIndicatorsRaw: "https://api.example.com")
+            try configureBearerAuth(app, environment: env)
+
+            try await app.testing().test(.GET, ".well-known/oauth-protected-resource") { res async throws in
+                #expect(res.status == .ok)
+                struct OAuthProtectedResourceMetadata: Codable {
+                    let authorizationServers: [String]
+                    enum CodingKeys: String, CodingKey {
+                        case authorizationServers = "authorization_servers"
+                    }
+                }
+                let metadata = try res.content.decode(OAuthProtectedResourceMetadata.self)
+                #expect(metadata.authorizationServers == ["http://127.0.0.1:8090"])
+            }
+        }
+    }
+
+    // 17. .local under .testing doesn't just register the discovery route — the real BearerAuthMiddleware
+    // is attached and actually enforces authentication on other routes, not merely skipped like .workOS/.disabled.
+    @Test(".local under .testing enforces authentication on other routes, not just the discovery route")
+    func localUnderTestingEnforcesAuth() async throws {
+        try await Self.withApp(environment: .testing) { app in
+            let env = BearerAuthEnvironmentConfig.local(port: 8090, resourceIndicatorsRaw: "https://api.example.com")
+            try configureBearerAuth(app, environment: env)
+
+            app.get("protected") { _ in "ok" }
+
+            try await app.testing().test(.GET, "protected") { res async throws in
+                #expect(res.status == .unauthorized)
+            }
+        }
+    }
 }

@@ -18,6 +18,7 @@ interface (e.g. an MCP server mounted on the same `Application`) behind the same
   - [401 vs. 503](#401-vs-503)
   - [JWKS refresh](#jwks-refresh)
 - [Signing test tokens for your own E2E suite](#signing-test-tokens-for-your-own-e2e-suite)
+- [Exercising real auth in an in-process E2E suite](#exercising-real-auth-in-an-in-process-e2e-suite)
 - [Design notes](#design-notes)
 - [Testing](#testing)
 
@@ -104,11 +105,14 @@ app.get("whoami") { req in
 
 `configureBearerAuth` branches on `app.environment` and `environment`:
 
-1. **`.testing`** — unconditionally skipped, regardless of `environment`. Your own test
-   suite can still exercise a route's auth requirement by attaching a second
-   `BearerAuthMiddleware`-backed setup manually if it needs to (this library's own test
-   suite does exactly that against a throwaway `Application` — see
-   `BearerAuthMiddlewareTests`).
+1. **`.testing`** — skipped for `.disabled` and `.workOS`, regardless of which credentials
+   `environment` carries. Your own test suite can still exercise a route's auth requirement
+   by attaching a second `BearerAuthMiddleware`-backed setup manually if it needs to (this
+   library's own test suite does exactly that against a throwaway `Application` — see
+   `BearerAuthMiddlewareTests`). **`.local` is the exception**: it's never skipped under
+   `.testing`, because by construction it only ever talks to a loopback mock, never to
+   WorkOS's real JWKS endpoint — see [Exercising real auth in an in-process E2E
+   suite](#exercising-real-auth-in-an-in-process-e2e-suite) below.
 2. **`.disabled`** — in `.production`, throws (there's no escape hatch to silently disable
    auth on a real deployment); outside production, authentication is disabled, with a
    logged warning so it's never silent.
@@ -180,6 +184,58 @@ As with `BearerAuthEnvironmentConfig`, `WorkOSTestTokenSigner` takes every value
 parameter rather than reading the environment itself — your own E2E setup decides where
 `issuer`/`resource`/the private key come from and under what variable names.
 
+## Exercising real auth in an in-process E2E suite
+
+The section above covers a suite that talks to an already-running, separately-deployed
+server — the heavier CI-style setup. `BearerAuthEnvironmentConfig.local` exists for the
+lighter alternative: an E2E suite that boots its own `Application` in-process (typically via
+`Application.make(.testing)`, the same way a Fluent-backed suite already boots an ephemeral
+database for itself) and wants genuine bearer-auth verification — missing/invalid/expired/valid
+token scenarios — without reaching for a genuinely-running server just to get that coverage.
+
+`.local` is the one `BearerAuthEnvironmentConfig` case that registers the real
+`BearerAuthMiddleware` even when `app.environment == .testing`: by construction it only ever
+verifies against `http://127.0.0.1:<port>`, never WorkOS's real JWKS endpoint, so the
+real-network rationale that makes `.disabled`/`.workOS` skip under `.testing` doesn't apply
+to it (see [The three configuration cases](#the-three-configuration-cases)).
+
+The pattern: boot a real, loopback-only OAuth mock (e.g.
+[`AuthMock`](https://github.com/manugs8/AuthMock), which serves both a token endpoint and
+`/oauth2/jwks`) on an ephemeral port alongside your `Application`, point `.local` at that
+port, and tear the mock process down the same way you already tear down an ephemeral test
+database — before or after the `Application` itself, whichever your own E2E harness does for
+its other ephemeral resources.
+
+```swift
+import WorkOSBearerAuth
+import Vapor
+
+func withE2EServer(
+    authMockPort: Int, resourceIndicator: String, test: (Application) async throws -> Void
+) async throws {
+    let app = try await Application.make(.testing)
+    do {
+        try configureBearerAuth(
+            app,
+            environment: .local(port: authMockPort, resourceIndicatorsRaw: resourceIndicator)
+        )
+        // ... your app's own configure(_:), migrations, etc.
+        try await test(app)
+    } catch {
+        try? await app.asyncShutdown()
+        throw error
+    }
+    try await app.asyncShutdown()
+}
+```
+
+Inside `test`, drive requests through `app.testing()` as usual: a request with no
+`Authorization` header exercises the missing-token path, a token fetched from the mock's
+token endpoint exercises the valid-token path, and a token with a tampered signature or an
+`exp` in the past exercises the invalid/expired paths — all against the real
+`BearerAuthMiddleware`/`BearerTokenVerifier`/`RemoteJWKS` chain, no test-only bypass
+involved.
+
 ## Design notes
 
 - **`Request.storage`, not a `@TaskLocal`.** A task-local set inside `BearerAuthMiddleware`
@@ -217,6 +273,10 @@ credentials or network access needed:
 - `BearerAuthMiddlewareTests` — wiring: exempt vs. protected paths, the
   `WWW-Authenticate` challenge, JWKS refresh-on-unrecognized-`kid`, 401 vs. 503, and that a
   single globally-attached instance covers every route regardless of how it was mounted.
+- `ConfigureTests` — the branching in `configureBearerAuth` itself, including that the
+  `.testing` short-circuit covers `.disabled`/`.workOS` but not `.local`, and that `.local`
+  under `.testing` doesn't just register the discovery route but actually enforces
+  authentication on other routes too.
 
 A consuming app generally doesn't need to re-test any of this — it only needs to call
 `configureBearerAuth` correctly and, if it wants to, assert that its own routes are reached

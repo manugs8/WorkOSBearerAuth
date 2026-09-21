@@ -41,6 +41,14 @@ public enum BearerAuthEnvironmentConfig: Sendable {
     /// `configureBearerAuth` rechaza este caso en `.production` (`localConfigInProduction`),
     /// para que la excepción no dependa solo de que nadie la active por error en un
     /// despliegue real.
+    ///
+    /// A diferencia de `.disabled`/`.workOS`, este es el único caso que **sí** registra
+    /// `BearerAuthMiddleware` incluso bajo `app.environment == .testing` — por construcción
+    /// nunca habla con el JWKS real de WorkOS, así que el motivo por el que `.testing` se
+    /// salta los otros dos casos (evitar una dependencia de red real durante `swift test`)
+    /// no aplica aquí. Esto permite que una suite E2E en proceso, montada con
+    /// `Application.make(.testing)`, ejercite la verificación de tokens de verdad contra un
+    /// `AuthMock` efímero arrancado junto a ella — ver <doc:10-GuiaDeTesting>.
     case local(port: Int, resourceIndicatorsRaw: String)
 }
 
@@ -49,14 +57,17 @@ public enum BearerAuthEnvironmentConfig: Sendable {
 /// Resource Metadata) que necesita.
 ///
 /// Cuatro casos: el cortocircuito de `.testing`, más los tres de ``BearerAuthEnvironmentConfig``.
-/// 1. `.testing` — se salta incondicionalmente, sin importar lo que lleve `environment`.
-///    El propio `.env.local` de una app consumidora puede llevar credenciales reales de
-///    staging de WorkOS para `swift run`, así que una comprobación de variables de
-///    entorno por sí sola no basta para mantener `swift test` libre de una dependencia de
-///    red real contra el endpoint JWKS de WorkOS. `BearerAuthMiddleware` en sí se sigue
-///    ejercitando de extremo a extremo en los propios tests de esta librería — ver
-///    `BearerAuthMiddlewareTests`, que lo monta con un `JWKSSource` local sin red en vez
-///    del `RemoteJWKS` real.
+/// 1. `.testing` — se salta incondicionalmente para ``BearerAuthEnvironmentConfig/disabled``
+///    y ``BearerAuthEnvironmentConfig/workOS(issuer:resourceIndicatorsRaw:)``, sin importar
+///    qué credenciales lleven. El propio `.env.local` de una app consumidora puede llevar
+///    credenciales reales de staging de WorkOS para `swift run`, así que una comprobación
+///    de variables de entorno por sí sola no basta para mantener `swift test` libre de una
+///    dependencia de red real contra el endpoint JWKS de WorkOS. `BearerAuthMiddleware` en
+///    sí se sigue ejercitando de extremo a extremo en los propios tests de esta librería —
+///    ver `BearerAuthMiddlewareTests`, que lo monta con un `JWKSSource` local sin red en
+///    vez del `RemoteJWKS` real. Este cortocircuito **no** aplica a
+///    ``BearerAuthEnvironmentConfig/local(port:resourceIndicatorsRaw:)`` — ver el porqué en
+///    su propio doc comment.
 /// 2. ``BearerAuthEnvironmentConfig/disabled`` — en producción se niega a arrancar
 ///    (`missingWorkOSEnvironment`); fuera de producción, la autenticación se desactiva con
 ///    un aviso bien visible, en vez de que todas las rutas queden silenciosamente
@@ -71,9 +82,17 @@ public enum BearerAuthEnvironmentConfig: Sendable {
 ///   o `invalidResourceIndicator` (todos privados a este módulo — quien consuma la librería
 ///   y quiera registrar o propagar el fallo no necesita distinguir el caso concreto).
 public func configureBearerAuth(_ app: Application, environment: BearerAuthEnvironmentConfig) throws {
-    guard app.environment != .testing else {
-        app.logger.warning("Running in .testing — skipping bearer auth regardless of WorkOS environment.")
-        return
+    // Narrowed to `.disabled`/`.workOS`: `.local` only ever talks to a loopback mock, by
+    // construction, so the real-network rationale for skipping under `.testing` doesn't
+    // apply to it — it falls through to the switch below and registers for real.
+    if app.environment == .testing {
+        switch environment {
+        case .disabled, .workOS:
+            app.logger.warning("Running in .testing — skipping bearer auth regardless of WorkOS environment.")
+            return
+        case .local:
+            break
+        }
     }
 
     let issuer: String

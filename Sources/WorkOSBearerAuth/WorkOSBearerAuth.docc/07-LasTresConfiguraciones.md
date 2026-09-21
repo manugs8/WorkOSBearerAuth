@@ -13,20 +13,30 @@ cada comprobación asume que las anteriores ya se han descartado.
 
 ## Caso 1 — Entorno `.testing`
 
-Si `app.environment == .testing`, la función retorna de inmediato, sin mirar siquiera el resto
-de `environment`. No hay excepciones a esto.
+Si `app.environment == .testing` y `environment` es ``BearerAuthEnvironmentConfig/disabled`` o
+``BearerAuthEnvironmentConfig/workOS(issuer:resourceIndicatorsRaw:)``, la función retorna de
+inmediato, sin llegar a registrar nada.
 
-**Por qué es incondicional**: el fichero `.env.local` de tu propia aplicación bien podría llevar
-credenciales reales de un entorno de staging de WorkOS, pensadas para ejecutar `swift run` en
-local. Si la condición para saltarse la autenticación dependiera solo de esas variables, `swift
-test` podría acabar intentando una conexión real contra el JWKS de WorkOS sin que nadie lo
-pretendiera — un test que a veces pasa y a veces falla según la conectividad de quien lo ejecuta.
-Comprobar `app.environment` en su lugar hace que el comportamiento en tests sea determinista,
-venga lo que venga en las variables de entorno.
+**Por qué es incondicional para estos dos casos**: el fichero `.env.local` de tu propia
+aplicación bien podría llevar credenciales reales de un entorno de staging de WorkOS, pensadas
+para ejecutar `swift run` en local. Si la condición para saltarse la autenticación dependiera
+solo de esas variables, `swift test` podría acabar intentando una conexión real contra el JWKS
+de WorkOS sin que nadie lo pretendiera — un test que a veces pasa y a veces falla según la
+conectividad de quien lo ejecuta. Comprobar `app.environment` en su lugar hace que el
+comportamiento en tests sea determinista, venga lo que venga en las variables de entorno.
 
 Esto no dice que `BearerAuthMiddleware` se quede sin probar — la propia suite de esta librería lo
 ejercita end-to-end (`BearerAuthMiddlewareTests`), montándolo a mano con una fuente de claves
 local en lugar de la real.
+
+**`.local` es la excepción**: no se salta bajo `.testing`. Por construcción, este caso solo
+verifica contra `http://127.0.0.1:<puerto>` — nunca contra el JWKS real de WorkOS — así que el
+motivo de más arriba (evitar una conexión de red real durante `swift test`) simplemente no le
+aplica. Esto es intencionado, no un descuido: permite que una suite E2E montada en el mismo
+proceso (típicamente con `Application.make(.testing)`) ejerza una verificación de tokens de
+verdad contra un `AuthMock` efímero arrancado junto a ella, en vez de necesitar un servidor
+genuinamente en marcha fuera de `.testing` solo para probar el camino de autenticación. Ver
+<doc:10-GuiaDeTesting>.
 
 ## Caso 2 — `BearerAuthEnvironmentConfig.disabled`
 
