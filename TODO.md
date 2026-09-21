@@ -13,4 +13,3 @@ When passing multiple comma-separated `WORKOS_RESOURCE_INDICATORS`, they are cur
 ### 3. Exponential Backoff for JWKS Fetching
 The `RemoteJWKS` implementation employs a rigid 30-second `forcedRefreshCooldown` to prevent thundering herd behavior against the WorkOS JWKS endpoint during outages or unrecognized token attacks.
 - **Proposal:** While sufficient for early stages, moving to an exponential backoff strategy (e.g. 2s, 4s, 8s, 16s, 30s) with Jitter will provide better resilience and quicker recovery for legitimate bursts immediately after an outage.
-

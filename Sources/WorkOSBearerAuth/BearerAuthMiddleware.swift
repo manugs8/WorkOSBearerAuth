@@ -7,8 +7,11 @@ import Vapor
 /// propio mecanismo separado.
 ///
 /// Lo registra `configureBearerAuth` con un ``RemoteJWKS`` respaldado por credenciales
-/// reales de WorkOS — y se salta incondicionalmente en `.testing`, para que las suites de
-/// test REST/MCP de una app consumidora no necesiten esas credenciales. `jwksSource` está
+/// reales de WorkOS — y se salta en `.testing` para ``BearerAuthEnvironmentConfig/disabled``
+/// y ``BearerAuthEnvironmentConfig/workOS(issuer:resourceIndicatorsRaw:)``, para que las
+/// suites de test REST/MCP de una app consumidora no necesiten esas credenciales.
+/// ``BearerAuthEnvironmentConfig/local(port:resourceIndicatorsRaw:)`` es la excepción: al
+/// hablar solo con un mock loopback, se registra igual bajo `.testing`. `jwksSource` está
 /// tipado como ``JWKSSource`` en vez de como el `RemoteJWKS` concreto para que
 /// `BearerAuthMiddlewareTests` pueda seguir ejercitando este middleware de extremo a
 /// extremo contra una colección de claves local.
