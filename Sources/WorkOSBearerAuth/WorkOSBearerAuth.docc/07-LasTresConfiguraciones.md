@@ -85,7 +85,7 @@ igual:
   un error de configuración explícito, no una lista vacía silenciosa.
 - Cada resource indicator resultante debe ser una URL absoluta `https://` con host — sin
   excepción, ni siquiera bajo `.local`: a diferencia del issuer, un resource indicator nunca se
-  dereferencia por red (ver ADR 0004 de `FinanceCore`), así que no hay ningún argumento de
+  dereferencia por red, así que no hay ningún argumento de
   loopback que lo relaje.
 - El **primero** de la lista, en el orden en que se escribieron, se toma como el indicador
   primario — el que se usa para construir la URL del endpoint de descubrimiento. Se conserva el
